@@ -1,6 +1,10 @@
-mod traits;
+pub mod traits;
 use std::sync::Arc;
 use traits::SpawnNamed;
+
+//pub mod chain;
+//pub mod state;
+//pub mod system;
 
 use jsonrpc_core as rpc;
 pub use jsonrpc_core::IoHandlerExtension as RpcExtension;
@@ -47,11 +51,6 @@ use futures::{
     task::{FutureObj, Spawn, SpawnError},
     FutureExt,
 };
-
-//pub mod chain;
-//pub mod state;
-//pub mod system;
-//pub mod testing;
 
 /// Task executor that is being used by RPC subscriptions.
 #[derive(Clone)]

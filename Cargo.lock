@@ -280,27 +280,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dyn-clonable"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e9232f0e607a262ceb9bd5141a3dfb3e4db6994b31989bbfd845878cba59fd4"
-dependencies = [
- "dyn-clonable-impl",
- "dyn-clone",
-]
-
-[[package]]
-name = "dyn-clonable-impl"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558e40ea573c374cf53507fd240b7ee2f5477df7cfebdb97323ec61c719399c5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1437,7 +1416,6 @@ dependencies = [
 name = "rpc"
 version = "0.1.0"
 dependencies = [
- "dyn-clonable",
  "futures 0.3.18",
  "jsonrpc-core",
  "jsonrpc-core-client",
@@ -1446,6 +1424,7 @@ dependencies = [
  "jsonrpc-ipc-server",
  "jsonrpc-pubsub",
  "jsonrpc-ws-server",
+ "lazy_static",
  "prometheus",
  "rpc-api",
  "rpc-macro",
@@ -1461,7 +1440,7 @@ dependencies = [
 name = "rpc-api"
 version = "0.1.0"
 dependencies = [
- "dyn-clonable",
+ "dyn-clone",
  "futures 0.3.18",
  "jsonrpc-core",
  "jsonrpc-core-client",
