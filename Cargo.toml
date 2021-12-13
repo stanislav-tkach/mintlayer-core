@@ -13,6 +13,7 @@ edition = "2021"
 members = [
   "common",        # everything else, until it's moved to another crate
   "storage",       # storage abstraction layer and its implementation
+  "storage/inmemory", # in-memory storage backend
   "crypto",        # cryptographic primitives and their interfaces
   "consensus",     # code on consensus of blocks and transactions
   "script",        # bitcoin script and its interfaces
@@ -29,6 +30,7 @@ members = [
 default-members = [
   "common",
   "storage",
+  "storage/inmemory",
   "crypto",
   "consensus",
   "script",
@@ -45,6 +47,7 @@ default-members = [
 [dependencies]
 common = { path = "common"}
 storage = { path = "storage"}
+storage-inmemory = { path = "storage/inmemory"}
 blockchain-storage = { path = "blockchain_storage"}
 crypto = { path = "crypto"}
 consensus = { path = "consensus"}
