@@ -128,15 +128,24 @@ where
     }
 }
 
-struct MapHandle<'st, 'tx, Col: ColumnInfo> {
-    store: &'st mut Col::StoreMap,
-    delta: &'tx mut Col::DeltaMap,
+struct MapHandleSingle<'tx> {
+    store: &'tx mut StoreMapSingle,
+    delta: &'tx mut DeltaMapSingle,
 }
 
-impl<'st, 'tx, Col: ColumnInfo> MapHandle<'st, 'tx, Col> {
-    fn new(store: &'st mut Col::StoreMap, delta: &'tx mut Col::DeltaMap) -> Self {
+impl<'tx> MapHandleSingle<'tx> {
+    fn new(store: &'tx mut StoreMapSingle, delta: &'tx mut DeltaMapSingle) -> Self {
         Self { store, delta }
     }
-}
 
+    fn get(&self, key: impl AsRef<[u8]>) -> storage::Result<Option<&'tx [u8]>> {
+        let delta = self.delta;
+        let store = self.store;
+        let res = match delta.get(key.as_ref()) {
+            Some(val) => val.as_ref(),
+            None => store.get(key.as_ref()),
+        };
+        Ok(res.map(AsRef::as_ref))
+    }
 // TODO MapHandle::{get, put, del, commit}
+}
