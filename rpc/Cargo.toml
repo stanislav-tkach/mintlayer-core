@@ -13,14 +13,11 @@ futures = "0.3.16"
 
 jsonrpc-core = "18.0.0"
 jsonrpc-derive = "18.0.0"
-jsonrpc-macros = "18.0.0"
 jsonrpc-core-client = "18.0.0"
 jsonrpc-server-utils = "18.0.0"
 jsonrpc-pubsub = { package = "jsonrpc-pubsub", version = "18.0.0" }
 jsonrpc-http = { package = "jsonrpc-http-server", version = "18.0.0" }
-jsonrpc-ipc = { package = "jsonrpc-ipc-server", version = "18.0.0" }
-jsonrpc-ws = { package = "jsonrpc-ws-server", version = "18.0.0" }
-
+jsonrpc-macros = "10.1.0"
 
 tokio = { version = "1.14.0", features = ["full"] }
 prometheus = { version = "0.13.0", default-features = false }
@@ -29,6 +26,7 @@ log = "0.4"
 tracing = "0.1"
 tracing-subscriber = "0.2"
 
+hex = "0.4.3"
 serde = "1.0.130"
 serde_json = "1.0.72"
 serde_derive = "1.0"
@@ -36,18 +34,16 @@ serde_derive = "1.0"
 lazy_static = "1.4.0"
 dyn-clone = "1.0.4"
 
-
 common = { path = "../common" }
-primitives = { path = "../primitives" }
-serialization = { path = "../serialization" }
-node = { path = "../node" }
-p2p = { path = "../p2p" }
-network = { path = "../network" }
 storage = { path = "../storage" }
+crypto = { path = "../crypto" }
 consensus = { path = "../consensus" }
 script = { path = "../script" }
-keys = { path = "../crypto" }
+p2p = { path = "../p2p" }
+network = { path = "../network" }
+serialization = { path = "../serialization" }
 
+heapsize = "0.4.2"
 
 [Tests]
 thiserror = { version = "1.0.30"}

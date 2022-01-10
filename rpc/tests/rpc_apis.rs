@@ -57,7 +57,7 @@ pub fn setup_rpc(
     apis: ApiSet,
     deps: Dependencies,
 ) -> MetaIoHandler<()> {
-    use ethcore_rpc::v1::*;
+    use ethcore_rpc::modules::*;
 
     for api in apis.list_apis() {
         match api {

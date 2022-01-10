@@ -1,7 +1,7 @@
 use jsonrpc_core::{start_http, Compatibility, MetaIoHandler, Remote, Server};
 use network::Network;
 use p2p;
-use rpc_apis::{self, ApiSet};
+use super::rpc_apis::{self, ApiSet};
 use std::io;
 use std::net::SocketAddr;
 use storage;
