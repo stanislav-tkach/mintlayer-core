@@ -13,7 +13,7 @@ pub enum GetBlockResponse {
 }
 
 /// Verbose block information
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Serialize, serde::Deserialize, PartialEq)]
 pub struct VerboseBlock {
     /// Block hash
     pub hash: H256,
@@ -70,9 +70,9 @@ impl Serialize for GetBlockResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::super::bytes::Bytes;
-    use super::super::hash::H256;
-    use super::super::uint::U256;
+    use crate::modules::types::bytes::Bytes;
+    use crate::modules::types::hash::H256;
+    use crate::modules::types::uint::U256;
     use super::*;
     use serde_json;
 

@@ -1,5 +1,6 @@
-use super::hash::H256;
-use super::transaction::TransactionOutputScript;
+use crate::modules::types::hash::H256;
+use crate::modules::types::transaction::TransactionOutputScript;
+use crate::modules::primitives::address::Address;
 use serde_derive::{Deserialize, Serialize};
 /// gettxout response
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -22,11 +23,11 @@ pub struct GetTxOutResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::super::bytes::Bytes;
-    use super::super::hash::H256;
-    use super::super::script::ScriptType;
-    use super::super::transaction::TransactionOutputScript;
     use super::*;
+    use crate::modules::types::bytes::Bytes;
+    use crate::modules::types::hash::H256;
+    use crate::modules::types::script::ScriptType;
+    use crate::modules::types::transaction::TransactionOutputScript;
     use serde_json;
 
     #[test]
@@ -41,8 +42,12 @@ mod tests {
                 req_sigs: 777,
                 script_type: ScriptType::Multisig,
                 addresses: vec![
-                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                    "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
+                    Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                 ],
             },
             version: 33,
@@ -66,8 +71,12 @@ mod tests {
                 req_sigs: 777,
                 script_type: ScriptType::Multisig,
                 addresses: vec![
-                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                    "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
+                    Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                 ],
             },
             version: 33,

@@ -1,13 +1,15 @@
-use jsonrpc_core::Error;
+use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_macros::jsonrpc_core::Error;
+
 use jsonrpc_macros::Trailing;
 
-use modules::types::GetBlockResponse;
-use modules::types::GetTxOutResponse;
-use modules::types::GetTxOutSetInfoResponse;
-use modules::types::H256;
+use crate::modules::types::GetBlockResponse;
+use crate::modules::types::GetTxOutResponse;
+use crate::modules::types::GetTxOutSetInfoResponse;
+use crate::modules::types::H256;
 
 build_rpc_trait! {
-    /// Parity-bitcoin blockchain data interface.
+    ///  blockchain data interface.
     pub trait BlockChain {
         /// Get hash of best block.
         /// @curl-example: curl --data-binary '{"jsonrpc": "2.0", "method": "getbestblockhash", "params": [], "id":1 }' -H 'content-type: application/json' http://127.0.0.1:8332/

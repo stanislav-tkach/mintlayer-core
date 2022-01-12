@@ -1,15 +1,15 @@
-use super::super::types;
 use super::bytes::Bytes;
 use super::hash::H256;
 use super::script::ScriptType;
-use common::address::Address;
+use crate::modules::primitives::address::Address;
+use crate::modules::types;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// Hex-encoded transaction
 pub type RawTransaction = Bytes;
- 
+
 /// Transaction input
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct TransactionInput {
@@ -184,10 +184,7 @@ impl Serialize for TransactionOutputs {
         for output in &self.outputs {
             match output {
                 &TransactionOutput::Address(ref address_output) => {
-                    state.serialize_entry(
-                        &address_output.address.to_string(),
-                        &address_output.amount,
-                    )?;
+                    state.serialize_entry(&address_output.address.get(), &address_output.amount)?;
                 }
                 &TransactionOutput::ScriptData(ref script_output) => {
                     state.serialize_entry("data", &script_output.script_data)?;
@@ -247,10 +244,10 @@ impl<'a> Deserialize<'a> for TransactionOutputs {
 
 #[cfg(test)]
 mod tests {
-    use super::super::bytes::Bytes;
-    use super::super::hash::H256;
-    use super::super::script::ScriptType;
     use super::*;
+    use crate::modules::types::bytes::Bytes;
+    use crate::modules::types::hash::H256;
+    use crate::modules::types::script::ScriptType;
     use serde_json;
 
     #[test]
@@ -284,11 +281,15 @@ mod tests {
         let txout = TransactionOutputs {
             outputs: vec![
                 TransactionOutput::Address(TransactionOutputWithAddress {
-                    address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
+                    address: Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
                     amount: 123.45,
                 }),
                 TransactionOutput::Address(TransactionOutputWithAddress {
-                    address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    address: Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                     amount: 67.89,
                 }),
                 TransactionOutput::ScriptData(TransactionOutputWithScriptData {
@@ -310,11 +311,15 @@ mod tests {
         let txout = TransactionOutputs {
             outputs: vec![
                 TransactionOutput::Address(TransactionOutputWithAddress {
-                    address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
+                    address: Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
                     amount: 123.45,
                 }),
                 TransactionOutput::Address(TransactionOutputWithAddress {
-                    address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    address: Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                     amount: 67.89,
                 }),
                 TransactionOutput::ScriptData(TransactionOutputWithScriptData {
@@ -365,8 +370,12 @@ mod tests {
             req_sigs: 777,
             script_type: ScriptType::Multisig,
             addresses: vec![
-                "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                Address {
+                    address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                },
+                Address {
+                    address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                },
             ],
         };
         assert_eq!(
@@ -383,8 +392,12 @@ mod tests {
             req_sigs: 777,
             script_type: ScriptType::Multisig,
             addresses: vec![
-                "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                Address {
+                    address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                },
+                Address {
+                    address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                },
             ],
         };
 
@@ -439,8 +452,12 @@ mod tests {
                 req_sigs: 777,
                 script_type: ScriptType::Multisig,
                 addresses: vec![
-                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                    "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
+                    Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                 ],
             },
         };
@@ -461,8 +478,12 @@ mod tests {
                 req_sigs: 777,
                 script_type: ScriptType::Multisig,
                 addresses: vec![
-                    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into(),
-                    "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".into(),
+                    Address {
+                        address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+                    },
+                    Address {
+                        address: "1H5m1XzvHsjWX3wwU781ubctznEpNACrNC".to_string(),
+                    },
                 ],
             },
         };
@@ -474,7 +495,7 @@ mod tests {
     #[test]
     fn transaction_serialize() {
         let tx = Transaction {
-            hex: Some("DEADBEEF".into()),
+            hex: Some(Bytes::new(vec![0xde, 0xad, 0xbe, 0xef])),
             txid: H256::from(4),
             hash: H256::from(5),
             size: 33,
@@ -497,7 +518,7 @@ mod tests {
     #[test]
     fn transaction_deserialize() {
         let tx = Transaction {
-            hex: Some("DEADBEEF".into()),
+            hex: Some(Bytes::new(vec![0xde, 0xad, 0xbe, 0xef])),
             txid: H256::from(4),
             hash: H256::from(5),
             size: 33,

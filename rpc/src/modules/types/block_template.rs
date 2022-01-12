@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// https://github.com/bitcoin/bips/blob/master/bip-0023.mediawiki
 /// https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki#getblocktemplate_changes
 /// https://github.com/bitcoin/bips/blob/master/bip-0145.mediawiki
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct BlockTemplate {
     /// The preferred block version
     pub version: u32,
@@ -56,7 +56,7 @@ pub struct BlockTemplate {
 }
 
 /// Transaction data as included in `BlockTemplate`
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct BlockTemplateTransaction {
     /// Transaction data encoded in hexadecimal
     pub data: RawTransaction,
@@ -79,6 +79,7 @@ pub struct BlockTemplateTransaction {
     pub required: bool,
 }
 
+/*
 impl From<miner::BlockTemplate> for BlockTemplate {
     fn from(block: miner::BlockTemplate) -> Self {
         BlockTemplate {
@@ -96,6 +97,7 @@ impl From<miner::BlockTemplate> for BlockTemplate {
     }
 }
 
+
 impl From<chain::IndexedTransaction> for BlockTemplateTransaction {
     fn from(transaction: chain::IndexedTransaction) -> Self {
         use ser::serialize;
@@ -106,13 +108,14 @@ impl From<chain::IndexedTransaction> for BlockTemplateTransaction {
         }
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {
-    use super::super::bytes::Bytes;
-    use super::super::hash::H256;
     use super::*;
-    use hex::FromHex;
+    use crate::modules::types::bytes::Bytes;
+    use crate::modules::types::hash::H256;
+    use rustc_hex::FromHex;
     use serde_json;
 
     #[test]

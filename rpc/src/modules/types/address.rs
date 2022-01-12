@@ -1,4 +1,4 @@
-use common::address::Address;
+use crate::modules::primitives::address::Address;
 use serde::de::{Unexpected, Visitor};
 use serde::{Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -7,7 +7,7 @@ pub fn serialize<S>(address: &Address, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    address.to_string().serialize(serializer)
+    address.get().serialize(serializer)
 }
 
 pub fn deserialize<'a, D>(deserializer: D) -> Result<Address, D::Error>
@@ -31,13 +31,46 @@ impl<'b> Visitor<'b> for AddressVisitor {
     where
         E: ::serde::de::Error,
     {
-        value.parse().map_err(|_| E::invalid_value(Unexpected::Str(value), &self))
+        Ok(Address {
+            address: value.to_string(),
+        })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidPublic,
+    InvalidSecret,
+    InvalidMessage,
+    InvalidSignature,
+    InvalidNetwork,
+    InvalidChecksum,
+    InvalidPrivate,
+    InvalidAddress,
+    FailedKeyGeneration,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg = match *self {
+            Error::InvalidPublic => "Invalid Public",
+            Error::InvalidSecret => "Invalid Secret",
+            Error::InvalidMessage => "Invalid Message",
+            Error::InvalidSignature => "Invalid Signature",
+            Error::InvalidNetwork => "Invalid Network",
+            Error::InvalidChecksum => "Invalid Checksum",
+            Error::InvalidPrivate => "Invalid Private",
+            Error::InvalidAddress => "Invalid Address",
+            Error::FailedKeyGeneration => "Key generation failed",
+        };
+
+        msg.fmt(f)
     }
 }
 
 pub mod vec {
     use super::AddressVisitor;
-    use common::address::Address;
+    use crate::modules::primitives::address::Address;
     use serde::de::Visitor;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -47,7 +80,7 @@ pub mod vec {
     {
         addresses
             .iter()
-            .map(|address| address.to_string())
+            .map(|address| address.get())
             .collect::<Vec<_>>()
             .serialize(serializer)
     }
@@ -65,13 +98,13 @@ pub mod vec {
 
 #[cfg(test)]
 mod tests {
-    use common::address::Address;
     use super::*;
+    use crate::modules::primitives::address::Address;
     use serde_json;
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     struct TestStruct {
-        #[serde(with = "types::address")]
+        #[serde(with = "crate::modules::types::address")]
         address: Address,
     }
 
@@ -83,7 +116,9 @@ mod tests {
 
     #[test]
     fn address_serialize() {
-        let test = TestStruct::new("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into());
+        let test = TestStruct::new(Address {
+            address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+        });
         assert_eq!(
             serde_json::to_string(&test).unwrap(),
             r#"{"address":"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"}"#
@@ -92,7 +127,9 @@ mod tests {
 
     #[test]
     fn address_deserialize() {
-        let test = TestStruct::new("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".into());
+        let test = TestStruct::new(Address {
+            address: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa".to_string(),
+        });
         assert_eq!(
             serde_json::from_str::<TestStruct>(
                 r#"{"address":"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"}"#

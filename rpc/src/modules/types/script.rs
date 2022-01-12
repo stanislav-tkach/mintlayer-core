@@ -1,4 +1,4 @@
-use global_script::ScriptType as GlobalScriptType;
+///use global_script::ScriptType as GlobalScriptType;
 use serde::de::Unexpected;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -14,7 +14,7 @@ pub enum ScriptType {
     WitnessScript,
     WitnessKey,
 }
-
+/*
 impl From<GlobalScriptType> for ScriptType {
     fn from(script_type: GlobalScriptType) -> Self {
         match script_type {
@@ -29,6 +29,7 @@ impl From<GlobalScriptType> for ScriptType {
         }
     }
 }
+*/
 
 impl Serialize for ScriptType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

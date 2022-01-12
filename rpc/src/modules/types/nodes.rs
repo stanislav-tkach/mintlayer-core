@@ -1,4 +1,4 @@
-use p2p::{Direction, PeerInfo};
+//use p2p::{Direction, PeerInfo};
 use serde::de::Unexpected;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -49,6 +49,7 @@ pub struct NodeInfoAddress {
     connected: NodeInfoAddressConnectionType,
 }
 
+/*
 impl From<PeerInfo> for NodeInfoAddress {
     fn from(info: PeerInfo) -> Self {
         NodeInfoAddress {
@@ -60,6 +61,7 @@ impl From<PeerInfo> for NodeInfoAddress {
         }
     }
 }
+*/
 
 #[derive(Serialize)]
 pub struct NodeInfo {

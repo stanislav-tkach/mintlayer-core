@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
-use util::{init_db, node_table_path};
+//use util::{init_db, node_table_path};
 use {config, p2p, PROTOCOL_MINIMUM, PROTOCOL_VERSION};
 
 enum BlockNotifierTask {

@@ -1,8 +1,69 @@
-use primitives::bigint::{Uint, U256 as GlobalU256};
+use bigint::U256 as GlobalU256;
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use rustc_hex::FromHexError;
 use serde;
 use serde::de::Unexpected;
 use std::fmt;
 use std::str::FromStr;
+
+#[inline]
+pub fn bits(val: &GlobalU256) -> usize {
+    let &GlobalU256(ref arr) = val;
+    for i in 1..4 {
+        if (*arr)[4 - i] > 0 {
+            return (0x40 * (4 - i + 1)) - arr[4 - i].leading_zeros() as usize;
+        }
+    }
+    0x40 - arr[0].leading_zeros() as usize
+}
+
+#[inline]
+pub fn is_zero(val: &GlobalU256) -> bool {
+    let &GlobalU256(ref arr) = &val;
+    for i in 0..4 {
+        if arr[i] != 0 {
+            return false;
+        }
+    }
+    return true;
+}
+
+#[inline]
+pub fn to_big_endian(val: &GlobalU256, bytes: &mut [u8]) {
+    debug_assert!(4 * 8 == bytes.len());
+    let &GlobalU256(ref arr) = val;
+    for i in 0..4 {
+        BigEndian::write_u64(&mut bytes[8 * i..], arr[4 - i - 1]);
+    }
+}
+
+#[inline]
+pub fn to_hex(val: &GlobalU256) -> String {
+    use core::cmp;
+    use rustc_hex::ToHex;
+
+    if is_zero(val) {
+        return "0".to_owned();
+    } // special case.
+    let mut bytes = [0u8; 8 * 4];
+    to_big_endian(val, &mut bytes);
+    let bp7 = bits(val) + 7;
+    let len = cmp::max(bp7 / 8, 1);
+    let bytes_hex = bytes[bytes.len() - len..].to_hex::<String>();
+    (&bytes_hex[1 - bp7 % 8 / 4..]).to_owned()
+}
+
+fn from_str(value: &str) -> Result<GlobalU256, FromHexError> {
+    use rustc_hex::FromHex;
+
+    let bytes: Vec<u8> = match value.len() % 2 == 0 {
+        true => value.from_hex()?,
+        false => ("0".to_owned() + value).from_hex()?,
+    };
+
+    let bytes_ref: &[u8] = &bytes;
+    Ok(From::from(bytes_ref))
+}
 
 macro_rules! impl_uint {
     ($name: ident, $other: ident, $size: expr) => {
@@ -20,15 +81,15 @@ macro_rules! impl_uint {
                 $name($other::from(o))
             }
         }
+        /*
+                impl FromStr for $name {
+                    type Err = <$other as FromStr>::Err;
 
-        impl FromStr for $name {
-            type Err = <$other as FromStr>::Err;
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                $other::from_str(s).map($name)
-            }
-        }
-
+                    fn from_str(s: &str) -> Result<Self, Self::Err> {
+                        $other::from_str(s).map($name)
+                    }
+                }
+        */
         impl Into<$other> for $name {
             fn into(self) -> $other {
                 self.0
@@ -40,7 +101,7 @@ macro_rules! impl_uint {
             where
                 S: serde::Serializer,
             {
-                let as_hex = format!("{}", self.0.to_hex());
+                let as_hex = format!("{}", to_hex(&self.0));
                 serializer.serialize_str(&as_hex)
             }
         }
@@ -67,7 +128,7 @@ macro_rules! impl_uint {
                             return Err(E::invalid_value(Unexpected::Str(value), &self));
                         }
 
-                        $other::from_str(value)
+                        from_str(value)
                             .map($name)
                             .map_err(|_| E::invalid_value(Unexpected::Str(value), &self))
                     }

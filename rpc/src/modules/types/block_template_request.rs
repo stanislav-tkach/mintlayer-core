@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 /// Block template request mode
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum BlockTemplateRequestMode {
     /// Work as described in BIP0022:
     /// https://github.com/bitcoin/bips/blob/master/bip-0022.mediawiki
@@ -18,7 +18,7 @@ pub enum BlockTemplateRequestMode {
 /// https://github.com/bitcoin/bips/blob/master/bip-0023.mediawiki
 /// https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki#getblocktemplate_changes
 /// https://github.com/bitcoin/bips/blob/master/bip-0145.mediawiki
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct BlockTemplateRequest {
     /// Request mode
     pub mode: Option<BlockTemplateRequestMode>,

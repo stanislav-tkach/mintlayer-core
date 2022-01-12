@@ -1,9 +1,11 @@
-use jsonrpc_core::Error;
+use crate::modules::types::{AddNodeOperation, NodeInfo};
+use jsonrpc_macros::build_rpc_trait;
+use jsonrpc_macros::jsonrpc_core::Error;
+
 use jsonrpc_macros::Trailing;
-use modules::types::{AddNodeOperation, NodeInfo};
 
 build_rpc_trait! {
-    /// Parity-bitcoin network interface
+    ///  network interface
     pub trait Network {
         /// Add/remove/connect to the node
         /// @curl-example: curl --data-binary '{"jsonrpc": "2.0", "method": "addnode", "params": ["127.0.0.1:8888", "add"], "id":1 }' -H 'content-type: application/json' http://127.0.0.1:8332/

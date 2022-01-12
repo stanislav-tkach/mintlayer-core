@@ -5,7 +5,7 @@ use std::io;
 use std::net::SocketAddr;
 
 /// Start http server asynchronously and returns result with `Server` handle on success or an error.
-pub fn start_http<M: jsonrpc_core::Metadata>(
+pub fn start_http<M: jsonrpc_core::Metadata + std::default::Default + std::marker::Unpin>(
     addr: &SocketAddr,
     cors_domains: Option<Vec<String>>,
     allowed_hosts: Option<Vec<String>>,
