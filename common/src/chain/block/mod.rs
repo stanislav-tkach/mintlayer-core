@@ -28,11 +28,11 @@ use parity_scale_codec::{Decode, Encode};
 pub fn calculate_tx_merkle_root(
     transactions: &[Transaction],
 ) -> Result<H256, merkle::MerkleTreeFormError> {
-    if transactions.len() == 1 {
+    if let [coinbase] = transactions {
         // using bitcoin's way, blocks that only have the coinbase use their coinbase as the merkleroot
-        return Ok(transactions[0].get_id().get());
+        return Ok(coinbase.get_id_no_witness().get());
     }
-    let hashes: Vec<H256> = transactions.iter().map(|tx| tx.get_id().get()).collect();
+    let hashes: Vec<H256> = transactions.iter().map(|tx| tx.get_id_no_witness().get()).collect();
     let t = merkle::merkletree_from_vec(&hashes)?;
     Ok(t.root())
 }
@@ -40,10 +40,9 @@ pub fn calculate_tx_merkle_root(
 pub fn calculate_witness_merkle_root(
     transactions: &[Transaction],
 ) -> Result<H256, merkle::MerkleTreeFormError> {
-    // TODO: provide implementation based on real serialization instead of get_id()
-    if transactions.len() == 1 {
+    if let [coinbase] = transactions {
         // using bitcoin's way, blocks that only have the coinbase use their coinbase as the merkleroot
-        return Ok(transactions[0].get_id().get());
+        return Ok(coinbase.get_id().get());
     }
     let hashes: Vec<H256> = transactions.iter().map(|tx| tx.get_id().get()).collect();
     let t = merkle::merkletree_from_vec(&hashes)?;
@@ -65,18 +64,6 @@ impl From<MerkleTreeFormError> for BlockCreationError {
 pub enum Block {
     #[codec(index = 1)]
     V1(BlockV1),
-}
-
-impl From<Id<BlockV1>> for Id<Block> {
-    fn from(id_block_v1: Id<BlockV1>) -> Self {
-        Id::new(&id_block_v1.get())
-    }
-}
-
-impl From<Id<Block>> for Id<BlockV1> {
-    fn from(id_block: Id<Block>) -> Id<BlockV1> {
-        Id::new(&id_block.get())
-    }
 }
 
 impl Block {
@@ -148,10 +135,11 @@ impl Block {
     }
 }
 
-impl Idable<Block> for Block {
-    fn get_id(&self) -> Id<Self> {
+impl Idable for Block {
+    type Tag = Block;
+    fn get_id(&self) -> Id<Self::Tag> {
         match self {
-            Self::V1(block) => Id::new(&block.get_id().get()),
+            Block::V1(blk) => blk.get_id(),
         }
     }
 }

@@ -32,19 +32,26 @@ impl From<GenericArray<u8, typenum::U32>> for H256 {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
 pub struct Id<T: ?Sized> {
     id: H256,
-    _shadow: std::marker::PhantomData<T>,
+    _shadow: std::marker::PhantomData<fn() -> T>,
 }
 
 impl<T> Id<T> {
+    /// Get the underlying hash
     pub fn get(&self) -> H256 {
         self.id
     }
 
+    /// New ID from given hash
     pub fn new(h: &H256) -> Self {
         Self {
             id: *h,
             _shadow: std::marker::PhantomData,
         }
+    }
+
+    /// Explicitly convert the id to one tagged by a different type.
+    pub fn coerce<U>(self) -> Id<U> {
+        Id::new(&self.get())
     }
 }
 
@@ -55,8 +62,30 @@ impl<T> AsRef<[u8]> for Id<T> {
 }
 
 /// a trait for objects that deserve having a unique id with implementations to how to ID them
-pub trait Idable<T: ?Sized> {
-    fn get_id(&self) -> Id<Self>;
+pub trait Idable {
+    /// Which type is the ID associated with
+    type Tag;
+    /// Get the ID
+    fn get_id(&self) -> Id<Self::Tag>;
+}
+
+// Get Idable by hashing the serialized version of an object.
+macro_rules! derive_idable_via_encode {
+    ($type:ty) => {
+        derive_idable_via_encode!($type, $type);
+    };
+    ($type:ty, $tag:ty) => {
+        derive_idable_via_encode!($type, $tag, ::core::convert::identity);
+    };
+    ($type:ty, $tag:ty, $($customize:tt)*) => {
+        impl $crate::primitives::id::Idable for $type {
+            type Tag = $tag;
+            fn get_id(&self) -> $crate::primitives::id::Id<Self::Tag> {
+                use $crate::primitives::id;
+                id::Id::new(&id::hash_encoded(&(($($customize)*)(&self))))
+            }
+        }
+    };
 }
 
 #[allow(dead_code)]

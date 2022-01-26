@@ -21,6 +21,7 @@ pub mod encoding;
 pub mod error;
 mod hash_encoded;
 pub mod height;
+#[macro_use]
 pub mod id;
 pub mod merkle;
 pub mod time;

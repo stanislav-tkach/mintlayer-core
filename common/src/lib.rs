@@ -15,9 +15,11 @@
 //
 // Author(s): S. Afach
 
+#[macro_use]
+pub mod primitives;
+
 pub mod address;
 pub mod chain;
-pub mod primitives;
 pub mod uint;
 
 mod concurrency_impl;

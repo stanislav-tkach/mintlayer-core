@@ -31,25 +31,27 @@ pub use transaction_index::*;
 
 mod transaction_v1;
 
+/// A view of an object, typically a [Transaction] or a [TxInput], with witness(es) removed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoWitness<T>(T);
+
+/// Transaction
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum Transaction {
     #[codec(index = 1)]
     V1(TransactionV1),
 }
 
-impl From<Id<TransactionV1>> for Id<Transaction> {
-    fn from(id_tx_v1: Id<TransactionV1>) -> Id<Transaction> {
-        Id::new(&id_tx_v1.get())
-    }
-}
-
-impl Idable<Transaction> for Transaction {
-    fn get_id(&self) -> Id<Transaction> {
-        match &self {
-            Transaction::V1(tx) => tx.get_id().into(),
+impl Encode for NoWitness<&Transaction> {
+    fn encode_to<S: parity_scale_codec::Output + ?Sized>(&self, stream: &mut S) {
+        match self.0 {
+            Transaction::V1(tx) => (TransactionV1::VERSION_BYTE, NoWitness(tx)).encode_to(stream),
         }
     }
 }
+
+derive_idable_via_encode!(Transaction);
+derive_idable_via_encode!(NoWitness<&Transaction>, NoWitness<Transaction>);
 
 #[derive(Debug, Clone)]
 pub enum TransactionCreationError {
@@ -97,11 +99,8 @@ impl Transaction {
         }
     }
 
-    /// provides the hash of a transaction including the witness (malleable)
-    pub fn get_serialized_hash(&self) -> Id<Transaction> {
-        match &self {
-            Transaction::V1(tx) => tx.get_serialized_hash(),
-        }
+    pub fn get_id_no_witness(&self) -> Id<NoWitness<Transaction>> {
+        NoWitness(self).get_id()
     }
 }
 
