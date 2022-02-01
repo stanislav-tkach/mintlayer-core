@@ -236,15 +236,6 @@ impl Sum<Amount> for Option<Amount> {
     }
 }
 
-impl std::iter::Sum<Amount> for Option<Amount> {
-    fn sum<I>(mut iter: I) -> Self
-    where
-        I: Iterator<Item = Amount>,
-    {
-        iter.try_fold(Amount::new(0), std::ops::Add::add)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
