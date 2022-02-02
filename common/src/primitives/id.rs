@@ -35,6 +35,13 @@ pub struct Id<T: ?Sized> {
     _shadow: std::marker::PhantomData<T>,
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
+impl<T> std::hash::Hash for Id<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
+    }
+}
+
 impl<T> Id<T> {
     pub fn get(&self) -> H256 {
         self.id
