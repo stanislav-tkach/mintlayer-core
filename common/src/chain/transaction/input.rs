@@ -1,5 +1,7 @@
+use crypto::hash::StreamHasher;
+
 use crate::chain::transaction::Transaction;
-use crate::primitives::Id;
+use crate::primitives::{id, Id, Idable};
 use parity_scale_codec::{Decode, Encode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -22,6 +24,15 @@ impl OutPoint {
 
     pub fn get_output_index(&self) -> u32 {
         self.index
+    }
+}
+
+impl Idable<OutPoint> for OutPoint {
+    fn get_id(&self) -> Id<Self> {
+        let mut hash_stream = id::DefaultHashAlgoStream::new();
+        id::hash_encoded_to(&self.id, &mut hash_stream);
+        id::hash_encoded_to(&self.index, &mut hash_stream);
+        Id::new(&hash_stream.finalize().into())
     }
 }
 
