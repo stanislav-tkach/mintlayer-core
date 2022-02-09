@@ -30,7 +30,6 @@ pub struct Amount {
 }
 
 impl Amount {
-    #[allow(dead_code)]
     pub fn new(v: u128) -> Self {
         Amount { val: v }
     }
