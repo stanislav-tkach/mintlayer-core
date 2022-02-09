@@ -40,7 +40,6 @@ fn remove_right_most_zeros_and_decimal_point(s: String) -> String {
 }
 
 impl Amount {
-    #[allow(dead_code)]
     pub fn new(v: u128) -> Self {
         Amount { val: v }
     }
