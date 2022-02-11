@@ -76,24 +76,50 @@ trait TryGetFee {
 
 impl TxMempoolEntry {
     fn new<C: ChainState>(tx: Transaction, pool: &MempoolImpl<C>) -> Option<TxMempoolEntry> {
-        let parents = tx
-            .get_inputs()
-            .iter()
-            .filter_map(|input| pool.store.txs_by_id.get(&input.get_outpoint().get_tx_id().get()))
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut parents = BTreeSet::new();
+        for input in tx.get_inputs() {
+            let parent = pool.store.txs_by_id.get(&input.get_outpoint().get_tx_id().get());
+            if let Some(parent) = parent {
+                println!("found an unconfirmed parent {}", parent.tx.get_id().get());
+                println!(
+                    "parent insert {}- fee {:?} - result={}",
+                    parent.tx.get_id().get(),
+                    pool.try_get_fee(&parent.tx),
+                    parents.insert(Rc::clone(parent))
+                );
+                println!("PSize {}", parents.len());
+            } else {
+                println!("unconfirmed parent not found in txs_by_id")
+            }
+        }
+        /*
+        .filter_map(|input| pool.store.txs_by_id.get(&input.get_outpoint().get_tx_id().get()))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+        */
+        println!(
+            "TxMempoolEntry::new ({})- {}, unconfirmed parents = {:?}",
+            parents.len(),
+            tx.get_id().get(),
+            parents
+        );
         let fee = pool.try_get_fee(&tx).ok()?;
 
         Some(Self { tx, fee, parents })
     }
 
     fn is_replaceable(&self) -> bool {
+        let unconfirmed_ancestors = self.unconfirmed_ancestors();
+        let unconfirmed_ids = unconfirmed_ancestors
+            .clone()
+            .into_iter()
+            .map(|entry| entry.tx.get_id().get())
+            .collect::<Vec<_>>();
+        println!("tx has unconfirmed_ancestors {:?}", unconfirmed_ids);
         let explicit = self.tx.is_replaceable();
         if !explicit {
             println!("This tx is not explicitly replacable",);
         }
-
-        let unconfirmed_ancestors = self.unconfirmed_ancestors();
 
         for anc in &unconfirmed_ancestors {
             if anc.tx.is_replaceable() {
@@ -317,20 +343,20 @@ impl<C: ChainState + Debug> MempoolImpl<C> {
             return Err(TxValidationError::TransactionAlreadyInMempool);
         }
 
-        println!(
-            "about to search for conflicts for tx {:?}",
-            tx.get_id().get()
-        );
-        tx.get_inputs()
+        println!("about to search for conflicts for tx {}", tx.get_id().get());
+        let conflicts = tx
+            .get_inputs()
             .iter()
             .filter_map(|input| self.store.find_conflicting_tx(input.get_outpoint()))
-            .all(|entry| {
-                println!("checking against {:?}", entry.tx.get_id());
-                entry.is_replaceable()
-            })
-            .then(|| ())
-            .ok_or(TxValidationError::ConflictWithIrreplaceableTransaction)?;
-        println!("survived conflict check for tx {:?}", tx.get_id().get());
+            .collect::<Vec<_>>();
+
+        for entry in conflicts {
+            println!("checking against {}", entry.tx.get_id().get());
+            if !entry.is_replaceable() {
+                return Err(TxValidationError::ConflictWithIrreplaceableTransaction);
+            }
+        }
+        println!("survived conflict check for tx {}", tx.get_id().get());
 
         self.verify_inputs_available(tx)?;
 
@@ -361,6 +387,11 @@ impl<C: ChainState + Debug> Mempool<C> for MempoolImpl<C> {
         self.validate_transaction(&tx)?;
         let entry = TxMempoolEntry::new(tx, self)
             .ok_or_else(|| MempoolError::from(TxValidationError::TransactionFeeOverflow))?;
+        println!(
+            "created a new entry {} with {} unconfirmed parents",
+            entry.tx.get_id().get(),
+            entry.parents.len()
+        );
         self.store.add_tx(entry)?;
         Ok(())
     }
@@ -1051,6 +1082,7 @@ mod tests {
         let tx = TxGenerator::new_with_unconfirmed(&mempool, num_inputs, num_outputs)
             .generate_tx()
             .expect("generate_replaceable_tx");
+        println!("tx after genesis has id {}", tx.get_id().get());
 
         mempool.add_transaction(tx.clone())?;
 
@@ -1071,6 +1103,16 @@ mod tests {
             flags_irreplaceable,
             locktime,
         )?;
+        println!("\n\n\n\n\n");
+        println!(
+            "ancestor with signal has id {}",
+            ancestor_with_signal.get_id().get()
+        );
+        println!(
+            "ancestor without signal has id {}",
+            ancestor_without_signal.get_id().get()
+        );
+        print!("\n\n\n\n\n\n");
 
         mempool.add_transaction(ancestor_with_signal.clone())?;
         mempool.add_transaction(ancestor_without_signal.clone())?;
@@ -1087,19 +1129,23 @@ mod tests {
 
         let replaced_tx = Transaction::new(
             flags_irreplaceable,
-            vec![input_with_irreplaceable_parent.clone(), input_with_replaceable_parent.clone()],
+            vec![input_with_irreplaceable_parent.clone(), input_with_replaceable_parent],
             vec![dummy_output.clone()],
             locktime,
         )?;
 
-        mempool.add_transaction(replaced_tx)?;
         println!(
-            "created replaced_tx. It should have as ancestors:\n{:?}\nand\n{:?}",
-            input_with_replaceable_parent.get_outpoint().get_tx_id(),
-            input_with_irreplaceable_parent.get_outpoint().get_tx_id()
+            "created replaced_tx ({:?}). It should have as ancestors:\n{}\nand\n{}",
+            replaced_tx,
+            ancestor_with_signal.get_id().get(),
+            ancestor_without_signal.get_id().get()
         );
+        mempool.add_transaction(replaced_tx.clone())?;
 
-        println!("replaced_tx added successfully\n\n\n\n\n\n");
+        println!(
+            "replaced_tx (id={}), added successfully\n\n\n\n\n\n",
+            replaced_tx.get_id().get()
+        );
 
         let replacing_tx = Transaction::new(
             flags_irreplaceable,
@@ -1107,6 +1153,8 @@ mod tests {
             vec![dummy_output],
             locktime,
         )?;
+
+        println!("created replacing_tx {}", replacing_tx.get_id().get());
 
         mempool.add_transaction(replacing_tx)?;
 
