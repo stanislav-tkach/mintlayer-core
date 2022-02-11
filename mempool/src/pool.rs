@@ -89,12 +89,11 @@ impl TxMempoolEntry {
 
     fn is_replaceable(&self) -> bool {
         let explicit = self.tx.is_replaceable();
+        if !explicit {
+            println!("This tx is not explicitly replacable",);
+        }
 
         let unconfirmed_ancestors = self.unconfirmed_ancestors();
-        println!(
-            "This tx has {} unconfirmed ancestors",
-            unconfirmed_ancestors.len()
-        );
 
         for anc in &unconfirmed_ancestors {
             if anc.tx.is_replaceable() {
@@ -130,7 +129,7 @@ impl TxMempoolEntry {
     fn unconfirmed_ancestors_inner(&self, visited: &mut BTreeSet<Rc<TxMempoolEntry>>) {
         for parent in self.parents.iter() {
             if visited.contains(parent) {
-                break;
+                continue;
             } else {
                 visited.insert(Rc::clone(parent));
                 parent.unconfirmed_ancestors_inner(visited);
@@ -1088,12 +1087,17 @@ mod tests {
 
         let replaced_tx = Transaction::new(
             flags_irreplaceable,
-            vec![input_with_irreplaceable_parent.clone(), input_with_replaceable_parent],
+            vec![input_with_irreplaceable_parent.clone(), input_with_replaceable_parent.clone()],
             vec![dummy_output.clone()],
             locktime,
         )?;
 
         mempool.add_transaction(replaced_tx)?;
+        println!(
+            "created replaced_tx. It should have as ancestors:\n{:?}\nand\n{:?}",
+            input_with_replaceable_parent.get_outpoint().get_tx_id(),
+            input_with_irreplaceable_parent.get_outpoint().get_tx_id()
+        );
 
         println!("replaced_tx added successfully\n\n\n\n\n\n");
 
