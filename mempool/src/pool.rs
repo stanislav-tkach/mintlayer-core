@@ -67,7 +67,7 @@ pub trait ChainState {
 struct TxMempoolEntry {
     tx: Transaction,
     fee: Amount,
-    parents: BTreeSet<Rc<TxMempoolEntry>>,
+    parents: Vec<Rc<TxMempoolEntry>>,
 }
 
 trait TryGetFee {
@@ -76,16 +76,18 @@ trait TryGetFee {
 
 impl TxMempoolEntry {
     fn new<C: ChainState>(tx: Transaction, pool: &MempoolImpl<C>) -> Option<TxMempoolEntry> {
-        let mut parents = BTreeSet::new();
+        let mut parents = Vec::new();
         for input in tx.get_inputs() {
             let parent = pool.store.txs_by_id.get(&input.get_outpoint().get_tx_id().get());
             if let Some(parent) = parent {
                 println!("found an unconfirmed parent {}", parent.tx.get_id().get());
+                if !parents.contains(parent) {
+                    parents.push(Rc::clone(parent));
+                }
                 println!(
-                    "parent insert {}- fee {:?} - result={}",
+                    "parent insert {}- fee {:?}",
                     parent.tx.get_id().get(),
                     pool.try_get_fee(&parent.tx),
-                    parents.insert(Rc::clone(parent))
                 );
                 println!("PSize {}", parents.len());
             } else {
@@ -146,18 +148,18 @@ impl TxMempoolEntry {
         result
     }
 
-    fn unconfirmed_ancestors(&self) -> BTreeSet<Rc<TxMempoolEntry>> {
-        let mut visited = BTreeSet::new();
+    fn unconfirmed_ancestors(&self) -> Vec<Rc<TxMempoolEntry>> {
+        let mut visited = Vec::new();
         self.unconfirmed_ancestors_inner(&mut visited);
         visited
     }
 
-    fn unconfirmed_ancestors_inner(&self, visited: &mut BTreeSet<Rc<TxMempoolEntry>>) {
+    fn unconfirmed_ancestors_inner(&self, visited: &mut Vec<Rc<TxMempoolEntry>>) {
         for parent in self.parents.iter() {
             if visited.contains(parent) {
                 continue;
             } else {
-                visited.insert(Rc::clone(parent));
+                visited.push(Rc::clone(parent));
                 parent.unconfirmed_ancestors_inner(visited);
             }
         }
