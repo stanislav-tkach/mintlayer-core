@@ -22,6 +22,33 @@ const MAX_BLOCK_SIZE_BYTES: usize = 1_000_000;
 
 const MEMPOOL_MAX_TXS: usize = 1_000_000;
 
+impl<C: ChainState> TryGetFee for MempoolImpl<C> {
+    fn try_get_fee(&self, tx: &Transaction) -> Result<Amount, TxValidationError> {
+        let inputs = tx
+            .get_inputs()
+            .iter()
+            .map(|input| {
+                let outpoint = input.get_outpoint();
+                self.chain_state
+                    .get_outpoint_value(outpoint)
+                    .or_else(|_| self.store.get_unconfirmed_outpoint_value(outpoint))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let sum_inputs = inputs
+            .iter()
+            .cloned()
+            .sum::<Option<_>>()
+            .ok_or(TxValidationError::TransactionFeeOverflow)?;
+        let sum_outputs = tx
+            .get_outputs()
+            .iter()
+            .map(|output| output.get_value())
+            .sum::<Option<_>>()
+            .ok_or(TxValidationError::TransactionFeeOverflow)?;
+        (sum_inputs - sum_outputs).ok_or(TxValidationError::TransactionFeeOverflow)
+    }
+}
+
 pub trait Mempool<C> {
     fn create(chain_state: C) -> Self;
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), MempoolError>;
@@ -44,26 +71,18 @@ struct TxMempoolEntry {
 }
 
 trait TryGetFee {
-    fn try_get_fee(&self) -> Option<Amount>;
-}
-
-//TODO this should really be sum of inputs minus sum of outputs
-//But we don't yet have a way of summing of the inputs
-impl TryGetFee for Transaction {
-    fn try_get_fee(&self) -> Option<Amount> {
-        self.get_outputs().iter().map(|output| output.get_value()).sum::<Option<_>>()
-    }
+    fn try_get_fee(&self, tx: &Transaction) -> Result<Amount, TxValidationError>;
 }
 
 impl TxMempoolEntry {
-    fn new(tx: Transaction, pool: &MempoolStore) -> Option<TxMempoolEntry> {
+    fn new<C: ChainState>(tx: Transaction, pool: &MempoolImpl<C>) -> Option<TxMempoolEntry> {
         let parents = tx
             .get_inputs()
             .iter()
-            .filter_map(|input| pool.txs_by_id.get(&input.get_outpoint().get_tx_id().get()))
+            .filter_map(|input| pool.store.txs_by_id.get(&input.get_outpoint().get_tx_id().get()))
             .cloned()
             .collect::<BTreeSet<_>>();
-        let fee = tx.try_get_fee()?;
+        let fee = pool.try_get_fee(&tx).ok()?;
 
         Some(Self { tx, fee, parents })
     }
@@ -135,10 +154,26 @@ impl MempoolStore {
             Some(entry) if entry.tx.get_outputs().len() > outpoint.get_output_index() as usize)
     }
 
-    fn add_tx(&mut self, tx: Transaction) -> Result<(), MempoolError> {
-        let id = tx.get_id().get();
-        let entry = TxMempoolEntry::new(tx, self)
-            .ok_or_else(|| MempoolError::from(TxValidationError::TransactionFeeOverflow))?;
+    fn get_unconfirmed_outpoint_value(
+        &self,
+        outpoint: &OutPoint,
+    ) -> Result<Amount, TxValidationError> {
+        let tx_id = outpoint.get_tx_id();
+        let err = || TxValidationError::OutPointNotFound {
+            outpoint: outpoint.to_owned(),
+            tx_id: tx_id.to_owned(),
+        };
+        self.txs_by_id
+            .get(&tx_id.get())
+            .ok_or_else(err)
+            .and_then(|entry| {
+                entry.tx.get_outputs().get(outpoint.get_output_index() as usize).ok_or_else(err)
+            })
+            .map(|output| output.get_value())
+    }
+
+    fn add_tx(&mut self, entry: TxMempoolEntry) -> Result<(), MempoolError> {
+        let id = entry.tx.get_id().get();
         let entry = Rc::new(entry);
         self.txs_by_id.insert(id, Rc::clone(&entry));
         self.txs_by_fee.insert(Rc::clone(&entry));
@@ -288,7 +323,9 @@ impl<C: ChainState + Debug> Mempool<C> for MempoolImpl<C> {
             return Err(MempoolError::MempoolFull);
         }
         self.validate_transaction(&tx)?;
-        self.store.add_tx(tx)?;
+        let entry = TxMempoolEntry::new(tx, self)
+            .ok_or_else(|| MempoolError::from(TxValidationError::TransactionFeeOverflow))?;
+        self.store.add_tx(entry)?;
         Ok(())
     }
 
@@ -461,6 +498,7 @@ mod tests {
         coin_pool: BTreeSet<ValuedOutPoint>,
         num_inputs: usize,
         num_outputs: usize,
+        tx_fee: Option<Amount>,
     }
 
     impl TxGenerator {
@@ -476,6 +514,11 @@ mod tests {
                 num_inputs,
                 num_outputs,
             )
+        }
+
+        fn with_fee(mut self, fee: Amount) -> Self {
+            self.tx_fee = Some(fee);
+            self
         }
 
         fn new_with_unconfirmed(
@@ -509,12 +552,13 @@ mod tests {
                 coin_pool,
                 num_inputs,
                 num_outputs,
+                tx_fee: None,
             }
         }
 
         fn generate_tx(&mut self) -> anyhow::Result<Transaction> {
             let valued_inputs = self.generate_tx_inputs();
-            let outputs = self.generate_tx_outputs(&valued_inputs)?;
+            let outputs = self.generate_tx_outputs(&valued_inputs, self.tx_fee)?;
             let locktime = 0;
             let flags = 0;
             let (inputs, _): (Vec<TxInput>, Vec<Amount>) = valued_inputs.into_iter().unzip();
@@ -530,12 +574,13 @@ mod tests {
                     .zip(outputs.iter().enumerate())
                     .map(|(id, (i, output))| valued_outpoint(&id, i as u32, output)),
             );
+
             Ok(tx)
         }
 
         fn generate_replaceable_tx(mut self) -> anyhow::Result<Transaction> {
             let valued_inputs = self.generate_tx_inputs();
-            let outputs = self.generate_tx_outputs(&valued_inputs)?;
+            let outputs = self.generate_tx_outputs(&valued_inputs, self.tx_fee)?;
             let locktime = 0;
             let flags = 1;
             let (inputs, _values): (Vec<TxInput>, Vec<Amount>) = valued_inputs.into_iter().unzip();
@@ -554,21 +599,32 @@ mod tests {
         fn generate_tx_outputs(
             &self,
             inputs: &[(TxInput, Amount)],
+            tx_fee: Option<Amount>,
         ) -> anyhow::Result<Vec<TxOutput>> {
+            if self.num_outputs == 0 {
+                return Ok(vec![]);
+            }
+
             use common::primitives::amount::random;
             let inputs: Vec<_> = inputs.to_owned();
             let (inputs, values): (Vec<TxInput>, Vec<Amount>) = inputs.into_iter().unzip();
             if inputs.is_empty() {
                 return Ok(vec![]);
             }
-            let max_spend =
+            let sum_of_inputs =
                 values.into_iter().sum::<Option<_>>().expect("Overflow in sum of input values");
 
-            let mut left_to_spend = max_spend;
+            let total_to_spend = if let Some(fee) = tx_fee {
+                (sum_of_inputs - fee).expect("underflow")
+            } else {
+                sum_of_inputs
+            };
+
+            let mut left_to_spend = total_to_spend;
             let mut outputs = Vec::new();
 
             let max_output_value = Amount::from(1_000);
-            for _ in 0..self.num_outputs {
+            for _ in 0..self.num_outputs - 1 {
                 let max_output_value = std::cmp::min(
                     (left_to_spend / (2.into())).expect("division failed"),
                     max_output_value,
@@ -580,6 +636,8 @@ mod tests {
                 outputs.push(TxOutput::new(value, Destination::PublicKey));
                 left_to_spend = (left_to_spend - value).expect("subtraction failed");
             }
+
+            outputs.push(TxOutput::new(left_to_spend, Destination::PublicKey));
             Ok(outputs)
         }
 
@@ -887,12 +945,17 @@ mod tests {
         let mut mempool = setup();
         let num_inputs = 1;
         let num_outputs = 1;
+        let original_fee = Amount::from(10);
         let tx = TxGenerator::new(&mempool, num_inputs, num_outputs)
+            .with_fee(original_fee)
             .generate_replaceable_tx()
             .expect("generate_replaceable_tx");
         mempool.add_transaction(tx)?;
 
+        let fee_delta = Amount::from(5);
+        let replacement_fee = (original_fee + fee_delta).expect("overflow");
         let tx = TxGenerator::new(&mempool, num_inputs, num_outputs)
+            .with_fee(replacement_fee)
             .generate_tx()
             .expect("generate_tx_failed");
 
@@ -955,24 +1018,30 @@ mod tests {
 
         mempool.add_transaction(tx.clone())?;
 
-        let replaceable_input = TxInput::new(tx.get_id(), 0, DUMMY_WITNESS_MSG.to_vec());
-        let other_input = TxInput::new(tx.get_id(), 1, DUMMY_WITNESS_MSG.to_vec());
-
         let flags_replaceable = 1;
         let flags_irreplaceable = 0;
         let locktime = 0;
 
-        let ancestor_with_signal =
-            tx_spend_input(&mempool, replaceable_input, flags_replaceable, locktime)?;
+        let ancestor_with_signal = tx_spend_input(
+            &mempool,
+            TxInput::new(tx.get_id(), 0, DUMMY_WITNESS_MSG.to_vec()),
+            flags_replaceable,
+            locktime,
+        )?;
 
-        let ancestor_without_signal =
-            tx_spend_input(&mempool, other_input, flags_irreplaceable, locktime)?;
+        let ancestor_without_signal = tx_spend_input(
+            &mempool,
+            TxInput::new(tx.get_id(), 1, DUMMY_WITNESS_MSG.to_vec()),
+            flags_irreplaceable,
+            locktime,
+        )?;
 
         mempool.add_transaction(ancestor_with_signal.clone())?;
         mempool.add_transaction(ancestor_without_signal.clone())?;
 
         let input_with_replaceable_parent =
             TxInput::new(ancestor_with_signal.get_id(), 0, DUMMY_WITNESS_MSG.to_vec());
+
         let input_with_irreplaceable_parent = TxInput::new(
             ancestor_without_signal.get_id(),
             0,
@@ -988,6 +1057,8 @@ mod tests {
         )?;
 
         mempool.add_transaction(replaced_tx)?;
+
+        println!("replaced_tx added successfully");
 
         let replacing_tx = Transaction::new(
             flags_irreplaceable,
