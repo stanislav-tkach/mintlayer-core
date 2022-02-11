@@ -88,8 +88,37 @@ impl TxMempoolEntry {
     }
 
     fn is_replaceable(&self) -> bool {
-        self.tx.is_replaceable()
-            || self.unconfirmed_ancestors().iter().any(|ancestor| ancestor.tx.is_replaceable())
+        let explicit = self.tx.is_replaceable();
+
+        let unconfirmed_ancestors = self.unconfirmed_ancestors();
+        println!(
+            "This tx has {} unconfirmed ancestors",
+            unconfirmed_ancestors.len()
+        );
+
+        for anc in &unconfirmed_ancestors {
+            if anc.tx.is_replaceable() {
+                println!(
+                    "ancestor {:?} is explicitly replacable",
+                    anc.tx.get_id().get()
+                )
+            } else {
+                println!(
+                    "ancestor {:?} NOT explicitly replacable",
+                    anc.tx.get_id().get()
+                )
+            }
+        }
+        let implicit = unconfirmed_ancestors.iter().any(|ancestor| ancestor.tx.is_replaceable());
+        let result = explicit || implicit;
+
+        if !result {
+            println!("not replaceable");
+        }
+        if !result && unconfirmed_ancestors.is_empty() {
+            println!("irreplacable and no unconfirmed ancestors");
+        }
+        result
     }
 
     fn unconfirmed_ancestors(&self) -> BTreeSet<Rc<TxMempoolEntry>> {
@@ -289,12 +318,20 @@ impl<C: ChainState + Debug> MempoolImpl<C> {
             return Err(TxValidationError::TransactionAlreadyInMempool);
         }
 
+        println!(
+            "about to search for conflicts for tx {:?}",
+            tx.get_id().get()
+        );
         tx.get_inputs()
             .iter()
             .filter_map(|input| self.store.find_conflicting_tx(input.get_outpoint()))
-            .all(|tx| tx.is_replaceable())
+            .all(|entry| {
+                println!("checking against {:?}", entry.tx.get_id());
+                entry.is_replaceable()
+            })
             .then(|| ())
             .ok_or(TxValidationError::ConflictWithIrreplaceableTransaction)?;
+        println!("survived conflict check for tx {:?}", tx.get_id().get());
 
         self.verify_inputs_available(tx)?;
 
@@ -1058,7 +1095,7 @@ mod tests {
 
         mempool.add_transaction(replaced_tx)?;
 
-        println!("replaced_tx added successfully");
+        println!("replaced_tx added successfully\n\n\n\n\n\n");
 
         let replacing_tx = Transaction::new(
             flags_irreplaceable,
