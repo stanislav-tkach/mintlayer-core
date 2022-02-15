@@ -1100,10 +1100,11 @@ mod tests {
 
         let original_fee = Amount::from(10);
         let dummy_output = TxOutput::new(original_fee, Destination::PublicKey);
-        let replaced_tx = Transaction::new(
+        let replaced_tx = tx_spend_several_inputs(
+            &mempool,
+            &[input_with_irreplaceable_parent.clone(), input_with_replaceable_parent],
+            original_fee,
             flags_irreplaceable,
-            vec![input_with_irreplaceable_parent.clone(), input_with_replaceable_parent],
-            vec![dummy_output.clone()],
             locktime,
         )?;
 
