@@ -175,6 +175,14 @@ impl MempoolStore {
         for outpoint in entry.tx.get_inputs().iter().map(|input| input.get_outpoint()) {
             self.spender_txs.insert(outpoint.to_owned(), Rc::clone(&entry));
         }
+
+        for mut parent in entry.parents.clone() {
+            assert!(Rc::get_mut(&mut parent)
+                .expect("exclusive access to parent")
+                .children
+                .insert(Rc::clone(&entry)))
+        }
+
         Ok(())
     }
 
