@@ -1033,7 +1033,20 @@ mod tests {
 
     #[test]
     fn tx_replace() -> anyhow::Result<()> {
-        test_replace_tx(10.into(), 15.into()).map_err(anyhow::Error::from)
+        assert!(test_replace_tx(10.into(), 15.into()).is_ok());
+        assert!(matches!(
+            test_replace_tx(10.into(), 10.into()),
+            Err(MempoolError::TxValidationError(
+                TxValidationError::ReplacementFeeLowerThanOriginal
+            ))
+        ));
+        assert!(matches!(
+            test_replace_tx(10.into(), 5.into()),
+            Err(MempoolError::TxValidationError(
+                TxValidationError::ReplacementFeeLowerThanOriginal
+            ))
+        ));
+        Ok(())
     }
 
     #[test]
