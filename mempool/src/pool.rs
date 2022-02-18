@@ -373,6 +373,7 @@ impl<C: ChainState + Debug> MempoolImpl<C> {
 
             self.pays_more_than_conflicts(tx, &conflicts)?;
             self.potential_replacements_within_limit(&conflicts)?;
+            // TODO no new unconfirmed
         }
 
         self.verify_inputs_available(tx)?;
