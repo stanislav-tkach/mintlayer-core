@@ -1279,4 +1279,57 @@ mod tests {
 
         Ok(())
     }
+
+    fn test_bip125_max_replacements(
+        mempool: &mut MempoolImpl<ChainStateMock>,
+        num_potential_replacements: usize,
+    ) -> anyhow::Result<()> {
+        let num_inputs = 1;
+        let num_outputs = num_potential_replacements - 1;
+        let tx = TxGenerator::new(mempool, num_inputs, num_outputs)
+            .generate_replaceable_tx()
+            .expect("generate_tx failed");
+        let input = tx.get_inputs().first().expect("one input").to_owned();
+        let outputs = tx.get_outputs().clone();
+        let tx_id = tx.get_id();
+        mempool.add_transaction(tx)?;
+
+        let flags = 0;
+        let locktime = 0;
+        for (index, _) in outputs.iter().enumerate() {
+            let input = TxInput::new(
+                tx_id.clone(),
+                index.try_into().unwrap(),
+                DUMMY_WITNESS_MSG.to_vec(),
+            );
+            let fee = Amount::from(0).into();
+            let tx = tx_spend_input(mempool, input, fee, flags, locktime)?;
+            mempool.add_transaction(tx)?;
+        }
+
+        let replacement_tx =
+            tx_spend_input(mempool, input, Amount::from(100).into(), flags, locktime)?;
+        mempool.add_transaction(replacement_tx).map_err(anyhow::Error::from)
+    }
+
+    #[test]
+    fn too_many_conflicts() -> anyhow::Result<()> {
+        let mut mempool = setup();
+        let num_potential_replacements = MAX_BIP125_REPLACEMENT_CANDIATES + 1;
+        let err = test_bip125_max_replacements(&mut mempool, num_potential_replacements)
+            .expect_err("too many replacements");
+        let real_err = anyhow::Error::downcast::<MempoolError>(err).expect("failed to downcast");
+        assert!(matches!(
+            real_err,
+            MempoolError::TxValidationError(TxValidationError::TooManyPotentialReplacements)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn not_too_many_conflicts() -> anyhow::Result<()> {
+        let mut mempool = setup();
+        let num_potential_replacements = MAX_BIP125_REPLACEMENT_CANDIATES;
+        test_bip125_max_replacements(&mut mempool, num_potential_replacements)
+    }
 }
