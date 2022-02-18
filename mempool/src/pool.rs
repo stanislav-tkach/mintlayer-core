@@ -1139,6 +1139,7 @@ mod tests {
         flags: u32,
         locktime: u32,
     ) -> anyhow::Result<Transaction> {
+        let fee = fee.into().map_or(Amount::from_atoms(0), std::convert::identity);
         let input_value = inputs
             .iter()
             .map(|input| mempool.get_input_value(input))
@@ -1147,23 +1148,17 @@ mod tests {
             .sum::<Option<_>>()
             .expect("tx_spend_input: overflow");
 
-        let output_value = if let Some(fee) = fee.into() {
-            (fee <= input_value)
-                .then(|| (input_value - fee).expect("tx_spend_input: subtraction error"))
-                .ok_or_else(|| anyhow::anyhow!("Not enough funds"))?
-        } else {
-            (input_value / 2).expect("tx_spend_input: division error")
-        };
+        let available_for_spending = (input_value - fee).expect("underflow");
+        let spent = (available_for_spending / 2).expect("division error");
+
+        let change = (available_for_spending - spent).expect("underflow");
 
         Transaction::new(
             flags,
             inputs.to_owned(),
             vec![
-                TxOutput::new(output_value, Destination::PublicKey),
-                TxOutput::new(
-                    (input_value - output_value).expect("underflow"),
-                    Destination::PublicKey,
-                ),
+                TxOutput::new(spent, Destination::PublicKey),
+                TxOutput::new(change, Destination::PublicKey),
             ],
             locktime,
         )
