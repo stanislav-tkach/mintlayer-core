@@ -60,7 +60,7 @@ impl OutPoint {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Ord, PartialOrd, PartialEq, Eq, Encode, Decode)]
 pub struct TxInput {
     outpoint: OutPoint,
     witness: Vec<u8>,
