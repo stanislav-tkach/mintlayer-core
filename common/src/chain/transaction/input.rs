@@ -22,6 +22,15 @@ impl From<Id<Block>> for OutPointSourceId {
     }
 }
 
+impl OutPointSourceId {
+    pub fn get_tx_id(&self) -> Option<&Id<Transaction>> {
+        match self {
+            OutPointSourceId::Transaction(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Encode, Decode)]
 pub struct OutPoint {
     id: OutPointSourceId,
