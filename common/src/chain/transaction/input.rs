@@ -2,7 +2,7 @@ use crate::chain::{block::Block, transaction::Transaction};
 use crate::primitives::Id;
 use parity_scale_codec::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Ord, PartialOrd, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum OutPointSourceId {
     #[codec(index = 0)]
     Transaction(Id<Transaction>),
@@ -22,7 +22,16 @@ impl From<Id<Block>> for OutPointSourceId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+impl OutPointSourceId {
+    pub fn get_tx_id(&self) -> Option<&Id<Transaction>> {
+        match self {
+            OutPointSourceId::Transaction(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialOrd, Ord, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OutPoint {
     id: OutPointSourceId,
     index: u32,
