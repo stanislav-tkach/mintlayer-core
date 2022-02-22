@@ -42,7 +42,7 @@ impl From<Uint256> for H256 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Id<T: ?Sized> {
     id: H256,
     _shadow: std::marker::PhantomData<T>,
@@ -64,6 +64,18 @@ impl<T> Id<T> {
 impl<T> AsRef<[u8]> for Id<T> {
     fn as_ref(&self) -> &[u8] {
         &self.id[..]
+    }
+}
+
+impl<T: PartialEq> PartialOrd for Id<T> {
+    fn partial_cmp(&self, other: &Id<T>) -> Option<std::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl<T: Eq> Ord for Id<T> {
+    fn cmp(&self, other: &Id<T>) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
     }
 }
 
