@@ -1,6 +1,7 @@
 #![allow(clippy::eq_op)]
 
 use parity_scale_codec::{Decode, Encode};
+use rand::Rng;
 
 // Copyright (c) 2021 RBB S.r.l
 // opensource@mintlayer.org
@@ -109,6 +110,10 @@ impl Amount {
 
             atoms_str.parse::<IntType>().ok().map(|v| Amount { val: v })
         }
+    }
+
+    pub fn random(range: std::ops::RangeInclusive<Amount>) -> Amount {
+        Amount::from_atoms(rand::thread_rng().gen_range(range.start().val..=range.end().val))
     }
 }
 
@@ -237,7 +242,7 @@ impl std::iter::Sum<Amount> for Option<Amount> {
     where
         I: Iterator<Item = Amount>,
     {
-        iter.try_fold(Amount::new(0), std::ops::Add::add)
+        iter.try_fold(Amount::from_atoms(0), std::ops::Add::add)
     }
 }
 
