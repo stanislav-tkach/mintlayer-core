@@ -1727,6 +1727,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mempool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "common",
+ "parity-scale-codec",
+ "rand 0.8.4",
+ "thiserror",
+]
+
+[[package]]
 name = "merkletree"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1776,6 +1787,7 @@ dependencies = [
  "consensus",
  "crypto",
  "logging",
+ "mempool",
  "network",
  "p2p",
  "rpc",
