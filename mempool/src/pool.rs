@@ -771,6 +771,7 @@ mod tests {
         num_inputs: usize,
         num_outputs: usize,
         tx_fee: Amount,
+        replaceable: bool,
     }
 
     impl TxGenerator {
@@ -791,6 +792,11 @@ mod tests {
 
         fn with_num_outputs(mut self, num_outputs: usize) -> Self {
             self.num_outputs = num_outputs;
+            self
+        }
+
+        fn replaceable(mut self) -> Self {
+            self.replaceable = true;
             self
         }
 
@@ -815,6 +821,7 @@ mod tests {
                 num_inputs: 1,
                 num_outputs: 1,
                 tx_fee: 0.into(),
+                replaceable: false,
             }
         }
 
@@ -822,7 +829,7 @@ mod tests {
             let valued_inputs = self.generate_tx_inputs();
             let outputs = self.generate_tx_outputs(&valued_inputs)?;
             let locktime = 0;
-            let flags = 0;
+            let flags = if self.replaceable { 1 } else { 0 };
             let (inputs, _): (Vec<TxInput>, Vec<Amount>) = valued_inputs.into_iter().unzip();
             let spent_outpoints =
                 inputs.iter().map(|input| input.get_outpoint()).collect::<BTreeSet<_>>();
@@ -837,17 +844,6 @@ mod tests {
                     .map(|(id, (i, output))| valued_outpoint(&id, i as u32, output)),
             );
 
-            Ok(tx)
-        }
-
-        fn generate_replaceable_tx(mut self) -> anyhow::Result<Transaction> {
-            let valued_inputs = self.generate_tx_inputs();
-            let outputs = self.generate_tx_outputs(&valued_inputs)?;
-            let locktime = 0;
-            let flags = 1;
-            let (inputs, _values): (Vec<TxInput>, Vec<Amount>) = valued_inputs.into_iter().unzip();
-            let tx = Transaction::new(flags, inputs, outputs, locktime)?;
-            assert!(tx.is_replaceable());
             Ok(tx)
         }
 
@@ -1177,7 +1173,8 @@ mod tests {
         let mut mempool = setup();
         let tx = TxGenerator::new(&mempool)
             .with_fee(original_fee)
-            .generate_replaceable_tx()
+            .replaceable()
+            .generate_tx()
             .expect("generate_replaceable_tx");
         mempool.add_transaction(tx)?;
 
@@ -1222,7 +1219,8 @@ mod tests {
     fn tx_replace_child() -> anyhow::Result<()> {
         let mut mempool = setup();
         let tx = TxGenerator::new_with_unconfirmed(&mempool)
-            .generate_replaceable_tx()
+            .replaceable()
+            .generate_tx()
             .expect("generate_replaceable_tx");
         mempool.add_transaction(tx.clone())?;
 
@@ -1437,7 +1435,8 @@ mod tests {
     ) -> anyhow::Result<()> {
         let tx = TxGenerator::new(mempool)
             .with_num_outputs(num_potential_replacements - 1)
-            .generate_replaceable_tx()
+            .replaceable()
+            .generate_tx()
             .expect("generate_tx failed");
         let input = tx.get_inputs().first().expect("one input").to_owned();
         let outputs = tx.get_outputs().clone();
@@ -1489,7 +1488,8 @@ mod tests {
         let mut mempool = setup();
         let tx = TxGenerator::new(&mempool)
             .with_num_outputs(2)
-            .generate_replaceable_tx()
+            .replaceable()
+            .generate_tx()
             .expect("generate_replaceable_tx");
         let outpoint_source_id = OutPointSourceId::Transaction(tx.get_id());
         mempool.add_transaction(tx)?;
@@ -1525,7 +1525,8 @@ mod tests {
     fn pays_more_than_conflicts_with_descendants() -> anyhow::Result<()> {
         let mut mempool = setup();
         let tx = TxGenerator::new(&mempool)
-            .generate_replaceable_tx()
+            .replaceable()
+            .generate_tx()
             .expect("generate_replaceable_tx");
         let tx_id = tx.get_id();
         mempool.add_transaction(tx)?;
