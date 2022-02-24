@@ -54,11 +54,11 @@ impl<C: ChainState> TryGetFee for MempoolImpl<C> {
 
 pub trait Mempool<C> {
     fn create(chain_state: C) -> Self;
-    fn add_transaction(&mut self, tx: Transaction) -> Result<(), MempoolError>;
+    fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error>;
     fn get_all(&self) -> Vec<&Transaction>;
     fn contains_transaction(&self, tx: &Id<Transaction>) -> bool;
     fn drop_transaction(&mut self, tx: &Id<Transaction>);
-    fn new_tip_set(&mut self) -> Result<(), MempoolError>;
+    fn new_tip_set(&mut self) -> Result<(), Error>;
 }
 
 pub trait ChainState: Debug {
@@ -241,7 +241,7 @@ impl MempoolStore {
         }
     }
 
-    fn add_tx(&mut self, entry: TxMempoolEntry) -> Result<(), MempoolError> {
+    fn add_tx(&mut self, entry: TxMempoolEntry) -> Result<(), Error> {
         self.append_to_parents(&entry);
         self.update_ancestor_count(&entry);
         self.mark_outpoints_as_spent(&entry);
@@ -270,7 +270,7 @@ impl MempoolStore {
 }
 
 #[derive(Debug, Error)]
-pub enum MempoolError {
+pub enum Error {
     #[error("Mempool is full")]
     MempoolFull,
     #[error(transparent)]
@@ -321,9 +321,9 @@ pub enum TxValidationError {
     InsufficientFeesToRelay,
 }
 
-impl From<TxValidationError> for MempoolError {
+impl From<TxValidationError> for Error {
     fn from(e: TxValidationError) -> Self {
-        MempoolError::TxValidationError(e)
+        Error::TxValidationError(e)
     }
 }
 
@@ -549,17 +549,17 @@ impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
         }
     }
 
-    fn new_tip_set(&mut self) -> Result<(), MempoolError> {
+    fn new_tip_set(&mut self) -> Result<(), Error> {
         unimplemented!()
     }
     //
 
-    fn add_transaction(&mut self, tx: Transaction) -> Result<(), MempoolError> {
+    fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error> {
         // TODO (1). First, we need to decide on criteria for the Mempool to be considered full. Maybe number
         // of transactions is not a good enough indicator. Consider checking mempool size as well
         // TODO (2) What to do when the mempool is full. Instead of rejecting Do incoming transaction we probably want to evict a low-score transaction
         if self.store.txs_by_fee.len() >= MEMPOOL_MAX_TXS {
-            return Err(MempoolError::MempoolFull);
+            return Err(Error::MempoolFull);
         }
         self.validate_transaction(&tx)?;
         let entry = self.create_entry(tx)?;
@@ -978,7 +978,7 @@ mod tests {
             .expect("generate_tx failed");
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(TxValidationError::NoInputs))
+            Err(Error::TxValidationError(TxValidationError::NoInputs))
         ));
         Ok(())
     }
@@ -996,9 +996,7 @@ mod tests {
             .expect("generate_tx failed");
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(
-                TxValidationError::NoOutputs
-            ))
+            Err(Error::TxValidationError(TxValidationError::NoOutputs))
         ));
         Ok(())
     }
@@ -1028,9 +1026,7 @@ mod tests {
 
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(
-                TxValidationError::DuplicateInputs
-            ))
+            Err(Error::TxValidationError(TxValidationError::DuplicateInputs))
         ));
         Ok(())
     }
@@ -1056,7 +1052,7 @@ mod tests {
         mempool.add_transaction(tx.clone())?;
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::TransactionAlreadyInMempool
             ))
         ));
@@ -1093,9 +1089,7 @@ mod tests {
 
         assert!(matches!(
             mempool.add_transaction(coinbase_tx),
-            Err(MempoolError::TxValidationError(
-                TxValidationError::LooseCoinbase
-            ))
+            Err(Error::TxValidationError(TxValidationError::LooseCoinbase))
         ));
         Ok(())
     }
@@ -1131,7 +1125,7 @@ mod tests {
 
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::OutPointNotFound { .. }
             ))
         ));
@@ -1148,14 +1142,14 @@ mod tests {
             .expect("generate_tx failed");
         assert!(matches!(
             mempool.add_transaction(tx),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::ExceedsMaxBlockSize
             ))
         ));
         Ok(())
     }
 
-    fn test_replace_tx(original_fee: Amount, replacement_fee: Amount) -> Result<(), MempoolError> {
+    fn test_replace_tx(original_fee: Amount, replacement_fee: Amount) -> Result<(), Error> {
         let mut mempool = setup();
         let outpoint = mempool
             .available_outpoints()
@@ -1192,19 +1186,19 @@ mod tests {
         assert!(test_replace_tx(100.into(), replacement_fee).is_ok());
         assert!(matches!(
             test_replace_tx(100.into(), Amount::from(relay_fee + 99)),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::InsufficientFeesToRelay
             ))
         ));
         assert!(matches!(
             test_replace_tx(10.into(), 10.into()),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::ReplacementFeeLowerThanOriginal { .. }
             ))
         ));
         assert!(matches!(
             test_replace_tx(10.into(), 5.into()),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::ReplacementFeeLowerThanOriginal { .. }
             ))
         ));
@@ -1464,7 +1458,7 @@ mod tests {
             .expect("failed to downcast");
         assert!(matches!(
             err,
-            MempoolError::TxValidationError(TxValidationError::TooManyPotentialReplacements)
+            Error::TxValidationError(TxValidationError::TooManyPotentialReplacements)
         ));
         Ok(())
     }
@@ -1507,7 +1501,7 @@ mod tests {
         let res = mempool.add_transaction(incoming_tx);
         assert!(matches!(
             res,
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::SpendsNewUnconfirmedOutput
             ))
         ));
@@ -1578,7 +1572,7 @@ mod tests {
 
         assert!(matches!(
             mempool.add_transaction(incoming_tx),
-            Err(MempoolError::TxValidationError(
+            Err(Error::TxValidationError(
                 TxValidationError::TransactionFeeLowerThanConflictsWithDescendants
             ))
         ));
