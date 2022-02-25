@@ -647,6 +647,7 @@ mod tests {
     use common::chain::OutPointSourceId;
     use rand::Rng;
 
+    // TODO make lazy static and call to_vec here
     const DUMMY_WITNESS_MSG: &[u8] = b"dummy_witness_msg";
 
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
