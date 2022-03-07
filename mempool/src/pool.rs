@@ -570,6 +570,15 @@ impl<C: ChainState> MempoolImpl<C> {
 
         Ok(replacements_with_descendants)
     }
+
+    fn finalize_tx(&mut self, tx: Transaction) -> Result<(), Error> {
+        let entry = self.create_entry(tx)?;
+        self.store.add_tx(entry)?;
+        // TODO evict conflicts
+        // add the tx
+        // limit mempool size
+        Ok(())
+    }
 }
 
 trait SpendsUnconfirmed<C: ChainState> {
@@ -605,8 +614,7 @@ impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
             return Err(Error::MempoolFull);
         }
         self.validate_transaction(&tx)?;
-        let entry = self.create_entry(tx)?;
-        self.store.add_tx(entry)?;
+        self.finalize_tx(tx)?;
         Ok(())
     }
 
