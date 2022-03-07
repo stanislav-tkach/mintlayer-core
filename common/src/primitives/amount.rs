@@ -38,6 +38,13 @@ impl Amount {
     pub fn random(range: std::ops::RangeInclusive<Amount>) -> Amount {
         rand::thread_rng().gen_range(range.start().val..=range.end().val).into()
     }
+
+    pub fn pow(self, exponent: usize) -> Option<Self> {
+        (0..exponent).into_iter().try_fold(Amount::from(1), |mut partial_result, _| {
+            partial_result = (partial_result * self)?;
+            Some(partial_result)
+        })
+    }
 }
 
 impl From<u128> for Amount {
@@ -313,5 +320,11 @@ mod tests {
         assert_eq!(y >> 2, Some(Amount { val: 32 }));
         assert_eq!(y >> 4, Some(Amount { val: 8 }));
         assert_eq!(y >> 6, Some(Amount { val: 2 }));
+    }
+
+    #[test]
+    fn pow() {
+        let x = Amount { val: 2 };
+        assert_eq!(x.pow(4), Some(Amount { val: 16 }));
     }
 }
