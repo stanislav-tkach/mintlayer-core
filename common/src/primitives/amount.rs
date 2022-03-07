@@ -109,11 +109,16 @@ impl Amount {
         rand::thread_rng().gen_range(range.start().val..=range.end().val).into()
     }
 
-    pub fn pow(self, exponent: usize) -> Option<Self> {
-        (0..exponent).into_iter().try_fold(Amount::from(1), |mut partial_result, _| {
-            partial_result = (partial_result * self)?;
-            Some(partial_result)
-        })
+    // TODO this looks risky, consult Ben/Sam
+    pub fn div_by_float(self, divisor: f64) -> Self {
+        Self {
+            val: (self.val as f64 / divisor) as u128,
+        }
+    }
+
+    pub fn pow(self, exponent: f64) -> Option<Amount> {
+        println!("pow: {}", (self.val as f64).powf(exponent));
+        Some(Amount::from((self.val as f64).powf(exponent).ceil() as u128))
     }
 }
 
@@ -736,6 +741,6 @@ mod tests {
     #[test]
     fn pow() {
         let x = Amount { val: 2 };
-        assert_eq!(x.pow(4), Some(Amount { val: 16 }));
+        assert_eq!(x.pow(4.0), Some(Amount { val: 16 }));
     }
 }
