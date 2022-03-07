@@ -1735,6 +1735,7 @@ dependencies = [
  "parity-scale-codec",
  "rand 0.8.4",
  "thiserror",
+ "utils",
 ]
 
 [[package]]
