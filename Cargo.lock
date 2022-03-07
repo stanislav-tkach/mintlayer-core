@@ -1734,6 +1734,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "common",
+ "lazy_static",
+ "mockall",
  "parity-scale-codec",
  "rand 0.8.4",
  "thiserror",
