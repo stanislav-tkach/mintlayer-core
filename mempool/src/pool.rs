@@ -16,6 +16,8 @@ use common::primitives::Id;
 use common::primitives::Idable;
 use common::primitives::H256;
 
+use utils::newtype;
+
 // TODO this willbe defined elsewhere (some of limits.rs file)
 const MAX_BLOCK_SIZE_BYTES: usize = 1_000_000;
 
@@ -76,11 +78,8 @@ trait TryGetFee {
     fn try_get_fee(&self, tx: &Transaction) -> Result<Amount, TxValidationError>;
 }
 
-#[derive(Debug)]
-struct Ancestors(BTreeSet<H256>);
-
-#[derive(Debug)]
-struct Descendants(BTreeSet<H256>);
+newtype!(Ancestors(BTreeSet<H256>));
+newtype!(Descendants(BTreeSet<H256>));
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct TxMempoolEntry {
@@ -122,7 +121,6 @@ impl TxMempoolEntry {
         self.tx.is_replaceable()
             || self
                 .unconfirmed_ancestors(store)
-                .0
                 .iter()
                 .any(|ancestor| store.get_entry(ancestor).expect("entry").tx.is_replaceable())
     }
@@ -135,10 +133,10 @@ impl TxMempoolEntry {
 
     fn unconfirmed_ancestors_inner(&self, visited: &mut Ancestors, store: &MempoolStore) {
         for parent in self.parents.iter() {
-            if visited.0.contains(parent) {
+            if visited.contains(parent) {
                 continue;
             } else {
-                visited.0.insert(parent.to_owned());
+                visited.insert(parent.to_owned());
                 store
                     .get_entry(parent)
                     .expect("entry")
@@ -155,10 +153,10 @@ impl TxMempoolEntry {
 
     fn unconfirmed_descendants_inner(&self, visited: &mut Descendants, store: &MempoolStore) {
         for child in self.children.iter() {
-            if visited.0.contains(child) {
+            if visited.contains(child) {
                 continue;
             } else {
-                visited.0.insert(child.to_owned());
+                visited.insert(child.to_owned());
                 store
                     .get_entry(child)
                     .expect("entry")
@@ -1502,12 +1500,12 @@ mod tests {
         let entry4 = mempool.store.get_entry(ids.get(3).expect("index")).expect("entry");
         let entry5 = mempool.store.get_entry(ids.get(4).expect("index")).expect("entry");
         let entry6 = mempool.store.get_entry(ids.get(5).expect("index")).expect("entry");
-        assert_eq!(entry1.unconfirmed_ancestors(&mempool.store).0.len(), 0);
-        assert_eq!(entry2.unconfirmed_ancestors(&mempool.store).0.len(), 0);
-        assert_eq!(entry3.unconfirmed_ancestors(&mempool.store).0.len(), 2);
-        assert_eq!(entry4.unconfirmed_ancestors(&mempool.store).0.len(), 3);
-        assert_eq!(entry5.unconfirmed_ancestors(&mempool.store).0.len(), 3);
-        assert_eq!(entry6.unconfirmed_ancestors(&mempool.store).0.len(), 5);
+        assert_eq!(entry1.unconfirmed_ancestors(&mempool.store).len(), 0);
+        assert_eq!(entry2.unconfirmed_ancestors(&mempool.store).len(), 0);
+        assert_eq!(entry3.unconfirmed_ancestors(&mempool.store).len(), 2);
+        assert_eq!(entry4.unconfirmed_ancestors(&mempool.store).len(), 3);
+        assert_eq!(entry5.unconfirmed_ancestors(&mempool.store).len(), 3);
+        assert_eq!(entry6.unconfirmed_ancestors(&mempool.store).len(), 5);
 
         assert_eq!(entry1.count_with_descendants(), 5);
         assert_eq!(entry2.count_with_descendants(), 5);
