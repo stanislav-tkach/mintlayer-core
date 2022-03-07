@@ -178,10 +178,71 @@ impl Ord for TxMempoolEntry {
         other.tx_id().cmp(&self.tx_id())
     }
 }
+use num::pow;
+use std::cell::Cell;
+use std::time::Duration;
+use std::time::Instant;
+const ROLLING_FEE_HALF_LIFE: Duration = Duration::from_secs(60 * 60 * 12);
+const INCREMENTAL_RELAY_FEE_RATE: u128 = 1000;
+
+#[derive(Debug)]
+struct RollingFeeRate {
+    inner: Cell<RollingFeeRateInner>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RollingFeeRateInner {
+    block_since_last_rolling_fee_bump: bool,
+    rolling_minimum_fee_rate: u128,
+    last_rolling_fee_update: Instant,
+}
+
+impl RollingFeeRate {
+    fn new() -> Self {
+        let inner = Cell::new(RollingFeeRateInner {
+            block_since_last_rolling_fee_bump: false,
+            rolling_minimum_fee_rate: 0,
+            last_rolling_fee_update: Instant::now(),
+        });
+        Self { inner }
+    }
+
+    fn halflife(&self) -> Duration {
+        ROLLING_FEE_HALF_LIFE
+    }
+
+    // TODO need to update halflife according to memory usage and size limits
+    // TODO update this struct when TX is finalized
+    // TODO update this struct when a new block is processed
+    fn get_update_min_fee_rate(&self) -> u128 {
+        let mut inner = self.inner.get();
+        if !inner.block_since_last_rolling_fee_bump || inner.rolling_minimum_fee_rate == 0 {
+            return inner.rolling_minimum_fee_rate;
+        } else if Instant::now() > inner.last_rolling_fee_update + Duration::from_secs(10) {
+            // Decay the rolling fee
+            inner.rolling_minimum_fee_rate /= pow(
+                2,
+                (inner.last_rolling_fee_update.elapsed().as_secs()) as usize
+                    / self.halflife().as_secs() as usize,
+            );
+            inner.last_rolling_fee_update = Instant::now();
+
+            if inner.rolling_minimum_fee_rate < INCREMENTAL_RELAY_FEE_RATE / 2 {
+                inner.rolling_minimum_fee_rate = 0;
+                self.inner.set(inner);
+                return inner.rolling_minimum_fee_rate;
+            }
+        }
+
+        self.inner.set(inner);
+        std::cmp::max(inner.rolling_minimum_fee_rate, INCREMENTAL_RELAY_FEE_RATE)
+    }
+}
 
 #[derive(Debug)]
 pub struct MempoolImpl<C: ChainState> {
     store: MempoolStore,
+    rolling_fee_rate: RollingFeeRate,
     chain_state: C,
 }
 
@@ -345,6 +406,8 @@ pub enum TxValidationError {
     InsufficientFeesToRelay,
     #[error("InsufficientFeesToRelayRBF")]
     InsufficientFeesToRelayRBF,
+    #[error("RollingFeeThresholdNotMet")]
+    RollingFeeThresholdNotMet,
 }
 
 impl From<TxValidationError> for Error {
@@ -386,6 +449,11 @@ impl<C: ChainState> MempoolImpl<C> {
         Ok(TxMempoolEntry::new(tx, fee, parents))
     }
 
+    fn get_minimum_mempool_fee(&self, tx: &Transaction) -> Amount {
+        // TODO we should never reach the expect, but should be an error anyway
+        Amount::from(self.rolling_fee_rate.get_update_min_fee_rate() * (tx.encoded_size()) as u128)
+    }
+
     fn validate_transaction(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
         if tx.get_inputs().is_empty() {
             return Err(TxValidationError::NoInputs);
@@ -422,7 +490,15 @@ impl<C: ChainState> MempoolImpl<C> {
 
         self.pays_minimum_relay_fees(tx)?;
 
+        self.pays_minimum_mempool_fee(tx)?;
+
         Ok(conflicts)
+    }
+
+    fn pays_minimum_mempool_fee(&self, tx: &Transaction) -> Result<(), TxValidationError> {
+        (self.try_get_fee(tx)? >= self.get_minimum_mempool_fee(tx))
+            .then(|| ())
+            .ok_or(TxValidationError::RollingFeeThresholdNotMet)
     }
 
     fn pays_minimum_relay_fees(&self, tx: &Transaction) -> Result<(), TxValidationError> {
@@ -609,6 +685,7 @@ impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
         Self {
             store: MempoolStore::new(),
             chain_state,
+            rolling_fee_rate: RollingFeeRate::new(),
         }
     }
 
