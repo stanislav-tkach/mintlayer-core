@@ -80,6 +80,7 @@ trait TryGetFee {
 
 newtype!(struct Ancestors(BTreeSet<H256>));
 newtype!(struct Descendants(BTreeSet<H256>));
+newtype!(struct Conflicts(BTreeSet<H256>));
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct TxMempoolEntry {
@@ -379,7 +380,7 @@ impl<C: ChainState> MempoolImpl<C> {
         Ok(TxMempoolEntry::new(tx, fee, parents))
     }
 
-    fn validate_transaction(&self, tx: &Transaction) -> Result<(), TxValidationError> {
+    fn validate_transaction(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
         if tx.get_inputs().is_empty() {
             return Err(TxValidationError::NoInputs);
         }
@@ -409,13 +410,13 @@ impl<C: ChainState> MempoolImpl<C> {
             return Err(TxValidationError::TransactionAlreadyInMempool);
         }
 
-        self.rbf_checks(tx)?;
+        let conflicts = self.rbf_checks(tx)?;
 
         self.verify_inputs_available(tx)?;
 
         self.pays_minimum_relay_fees(tx)?;
 
-        Ok(())
+        Ok(conflicts)
     }
 
     fn pays_minimum_relay_fees(&self, tx: &Transaction) -> Result<(), TxValidationError> {
@@ -424,7 +425,7 @@ impl<C: ChainState> MempoolImpl<C> {
             .ok_or(TxValidationError::InsufficientFeesToRelay)
     }
 
-    fn rbf_checks(&self, tx: &Transaction) -> Result<(), TxValidationError> {
+    fn rbf_checks(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
         let conflicts = tx
             .get_inputs()
             .iter()
@@ -433,7 +434,7 @@ impl<C: ChainState> MempoolImpl<C> {
             .collect::<Vec<_>>();
 
         if conflicts.is_empty() {
-            Ok(())
+            Ok(Conflicts(BTreeSet::new()))
         } else {
             self.do_rbf_checks(tx, &conflicts)
         }
@@ -443,7 +444,7 @@ impl<C: ChainState> MempoolImpl<C> {
         &self,
         tx: &Transaction,
         conflicts: &[&TxMempoolEntry],
-    ) -> Result<(), TxValidationError> {
+    ) -> Result<Conflicts, TxValidationError> {
         for entry in conflicts {
             // Enforce BIP125 Rule #1.
             entry
@@ -467,7 +468,7 @@ impl<C: ChainState> MempoolImpl<C> {
             self.pays_more_than_conflicts_with_descendants(tx, &conflicts_with_descendants)?;
         // Enforce BIP125 Rule #4.
         self.pays_for_bandwidth(tx, total_conflict_fees)?;
-        Ok(())
+        Ok(Conflicts::from(conflicts_with_descendants))
     }
 
     fn pays_for_bandwidth(
@@ -577,6 +578,11 @@ impl<C: ChainState> MempoolImpl<C> {
         // TODO evict conflicts
         // add the tx
         // limit mempool size
+        Ok(())
+    }
+
+    #[allow(unused)]
+    fn limit_mempool_size(&mut self) -> Result<(), Error> {
         Ok(())
     }
 }
