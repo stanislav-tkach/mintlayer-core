@@ -278,7 +278,6 @@ impl MempoolStore {
         }
     }
 
-    // TODO test that conflicts are dropped
     fn drop_conflicts(&mut self, conflicts: Conflicts) {
         for conflict in conflicts.0 {
             self.drop_tx(&Id::new(&conflict))
@@ -1278,14 +1277,16 @@ mod tests {
         let input = TxInput::new(outpoint_source_id, 0, DUMMY_WITNESS_MSG.to_vec());
         let flags = 1;
         let locktime = 0;
-        let tx = tx_spend_input(&mempool, input.clone(), original_fee, flags, locktime)
+        let original = tx_spend_input(&mempool, input.clone(), original_fee, flags, locktime)
             .expect("should be able to spend here");
-        mempool.add_transaction(tx)?;
+        let original_id = original.get_id();
+        mempool.add_transaction(original)?;
 
         let flags = 0;
-        let tx = tx_spend_input(&mempool, input, replacement_fee, flags, locktime)
+        let replacement = tx_spend_input(&mempool, input, replacement_fee, flags, locktime)
             .expect("should be able to spend here");
-        mempool.add_transaction(tx)?;
+        mempool.add_transaction(replacement)?;
+        assert!(!mempool.contains_transaction(&original_id));
 
         Ok(())
     }
@@ -1460,6 +1461,7 @@ mod tests {
             flags_irreplaceable,
             locktime,
         )?;
+        let replaced_tx_id = replaced_tx.get_id();
 
         mempool.add_transaction(replaced_tx)?;
 
@@ -1471,6 +1473,7 @@ mod tests {
         )?;
 
         mempool.add_transaction(replacing_tx)?;
+        assert!(!mempool.contains_transaction(&replaced_tx_id));
 
         Ok(())
     }
@@ -1564,10 +1567,17 @@ mod tests {
             let tx = tx_spend_input(mempool, input, fee, flags, locktime)?;
             mempool.add_transaction(tx)?;
         }
+        let mempool_size_before_replacement = mempool.store.txs_by_id.len();
 
         let replacement_fee = Amount::from(1000) * fee;
         let replacement_tx = tx_spend_input(mempool, input, replacement_fee, flags, locktime)?;
         mempool.add_transaction(replacement_tx).map_err(anyhow::Error::from)?;
+        let mempool_size_after_replacement = mempool.store.txs_by_id.len();
+
+        assert_eq!(
+            mempool_size_after_replacement,
+            mempool_size_before_replacement - num_potential_replacements + 1
+        );
         Ok(())
     }
 
@@ -1654,7 +1664,7 @@ mod tests {
         mempool.add_transaction(replaced_tx)?;
 
         // Create some children for this transaction
-        let descendant_outpoint_source_id = OutPointSourceId::Transaction(replaced_id);
+        let descendant_outpoint_source_id = OutPointSourceId::Transaction(replaced_id.clone());
 
         let descendant1_fee = Amount::from(100);
         let descendant1 = tx_spend_input(
@@ -1668,6 +1678,7 @@ mod tests {
             no_rbf,
             locktime,
         )?;
+        let descendant1_id = descendant1.get_id();
         mempool.add_transaction(descendant1)?;
 
         let descendant2_fee = Amount::from(100);
@@ -1678,6 +1689,7 @@ mod tests {
             no_rbf,
             locktime,
         )?;
+        let descendant2_id = descendant2.get_id();
         mempool.add_transaction(descendant2)?;
 
         //Create a new incoming transaction that conflicts with `replaced_tx` because it spends
@@ -1706,6 +1718,10 @@ mod tests {
         let sufficient_rbf_fee = insufficient_rbf_fee + relay_fee.into();
         let incoming_tx = tx_spend_input(&mempool, input, sufficient_rbf_fee, no_rbf, locktime)?;
         mempool.add_transaction(incoming_tx)?;
+
+        assert!(!mempool.contains_transaction(&replaced_id));
+        assert!(!mempool.contains_transaction(&descendant1_id));
+        assert!(!mempool.contains_transaction(&descendant2_id));
         Ok(())
     }
 }
