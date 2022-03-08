@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::time::Duration;
 use std::time::Instant;
 
 use parity_scale_codec::Encode;
@@ -34,6 +35,8 @@ const RELAY_FEE_PER_BYTE: usize = 1;
 const MAX_BIP125_REPLACEMENT_CANDIATES: usize = 100;
 
 const MAX_MEMPOOL_SIZE: usize = 3_000_000;
+
+const DEFAULT_MEMPOOL_EXPIRY: Duration = Duration::from_secs(336 * 60 * 60);
 
 impl<C: ChainState> TryGetFee for MempoolImpl<C> {
     fn try_get_fee(&self, tx: &Transaction) -> Result<Amount, TxValidationError> {
@@ -193,6 +196,7 @@ pub struct MempoolImpl<C: ChainState> {
     store: MempoolStore,
     rolling_fee_rate: RollingFeeRate,
     max_size: usize,
+    max_tx_age: Duration,
     chain_state: C,
 }
 
@@ -310,6 +314,19 @@ impl MempoolStore {
     fn drop_conflicts(&mut self, conflicts: Conflicts) {
         for conflict in conflicts.0 {
             self.drop_tx(&Id::new(&conflict))
+        }
+    }
+
+    fn drop_tx_and_descendants(&mut self, tx_id: Id<Transaction>) {
+        if let Some(entry) = self.txs_by_id.get(&tx_id.get()).cloned() {
+            let descendants = entry.unconfirmed_descendants(self);
+            self.drop_tx(&entry.tx.get_id());
+            for descendant_id in descendants.0 {
+                // It may be that this descendant has several ancestors and has already been removed
+                if let Some(descendant) = self.txs_by_id.get(&descendant_id).cloned() {
+                    self.drop_tx(&descendant.tx.get_id())
+                }
+            }
         }
     }
 
@@ -568,7 +585,7 @@ impl<C: ChainState> MempoolImpl<C> {
     }
 
     fn limit_mempool_size(&mut self) -> Result<(), Error> {
-        // TODO remove expired transactions
+        self.remove_expired_transactions();
         let new_minimum_fee_rate = self.trim()?;
         if new_minimum_fee_rate > self.rolling_fee_rate.get_min_fee_rate() {
             self.rolling_fee_rate.update_min_fee_rate(new_minimum_fee_rate)
@@ -577,6 +594,21 @@ impl<C: ChainState> MempoolImpl<C> {
         Ok(())
     }
 
+    fn remove_expired_transactions(&mut self) {
+        let expired: Vec<_> = self
+            .store
+            .txs_by_creation_time
+            .values()
+            .flatten()
+            .map(|entry_id| self.store.txs_by_id.get(entry_id).expect("entry should exist"))
+            .filter(|entry| entry.creation_time.elapsed() > self.max_tx_age)
+            .cloned()
+            .collect();
+
+        for tx_id in expired.iter().map(|entry| entry.tx.get_id()) {
+            self.store.drop_tx_and_descendants(tx_id)
+        }
+    }
     fn trim(&mut self) -> Result<FeeRate, Error> {
         let mut updated_min_fee_rate = FeeRate::new(0);
         while !self.store.is_empty() && self.store.memory_usage() > self.max_size {
@@ -618,6 +650,7 @@ impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
             store: MempoolStore::new(),
             chain_state,
             max_size: MAX_MEMPOOL_SIZE,
+            max_tx_age: DEFAULT_MEMPOOL_EXPIRY,
             rolling_fee_rate: RollingFeeRate::new(),
         }
     }
