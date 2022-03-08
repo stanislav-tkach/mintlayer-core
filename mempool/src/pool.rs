@@ -1,9 +1,9 @@
-use std::cmp::Ord;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::time::Instant;
 
 use parity_scale_codec::Encode;
 
@@ -96,6 +96,7 @@ struct TxMempoolEntry {
     parents: BTreeSet<H256>,
     children: BTreeSet<H256>,
     count_with_descendants: usize,
+    creation_time: Instant,
 }
 
 impl TxMempoolEntry {
@@ -106,6 +107,7 @@ impl TxMempoolEntry {
             parents,
             children: BTreeSet::default(),
             count_with_descendants: 1,
+            creation_time: Instant::now(),
         }
     }
 
@@ -198,6 +200,7 @@ pub struct MempoolImpl<C: ChainState> {
 struct MempoolStore {
     txs_by_id: HashMap<H256, TxMempoolEntry>,
     txs_by_fee: BTreeMap<Amount, BTreeSet<H256>>,
+    txs_by_creation_time: BTreeMap<Instant, BTreeSet<H256>>,
     spender_txs: BTreeMap<OutPoint, H256>,
 }
 
@@ -206,6 +209,7 @@ impl MempoolStore {
         Self {
             txs_by_fee: BTreeMap::new(),
             txs_by_id: HashMap::new(),
+            txs_by_creation_time: BTreeMap::new(),
             spender_txs: BTreeMap::new(),
         }
     }
@@ -277,6 +281,10 @@ impl MempoolStore {
         self.mark_outpoints_as_spent(&entry);
 
         self.txs_by_fee.entry(entry.fee).or_default().insert(entry.tx_id());
+        self.txs_by_creation_time
+            .entry(entry.creation_time)
+            .or_default()
+            .insert(entry.tx_id());
         let tx_id = entry.tx_id();
         self.txs_by_id.insert(entry.tx_id(), entry);
         assert!(self.txs_by_id.get(&tx_id).is_some());
@@ -287,6 +295,9 @@ impl MempoolStore {
     fn drop_tx(&mut self, tx_id: &Id<Transaction>) {
         if let Some(entry) = self.txs_by_id.remove(&tx_id.get()) {
             self.txs_by_fee.entry(entry.fee).and_modify(|entries| {
+                entries.remove(&tx_id.get()).then(|| ()).expect("Inconsistent mempool store")
+            });
+            self.txs_by_creation_time.entry(entry.creation_time).and_modify(|entries| {
                 entries.remove(&tx_id.get()).then(|| ()).expect("Inconsistent mempool store")
             });
             self.spender_txs.retain(|_, id| *id != tx_id.get())
