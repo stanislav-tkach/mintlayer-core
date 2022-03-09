@@ -966,14 +966,6 @@ mod tests {
             self
         }
 
-        // TODO not sure if we need this
-        /*
-        fn with_fee(mut self, tx_fee: Amount) -> Self {
-            self.tx_fee = tx_fee;
-            self
-        }
-        */
-
         fn new(mempool: &MempoolImpl<ChainStateMock>) -> Self {
             let unconfirmed_outputs = mempool.available_outpoints();
             Self::create_tx_generator(&mempool.chain_state, &unconfirmed_outputs)
