@@ -67,21 +67,34 @@ impl Clone for Box<dyn GetTime> {
     }
 }
 
-pub trait GetTime: GetTimeClone {
+pub trait GetTime: GetTimeClone + 'static {
     fn get_time(&self) -> Time;
 }
 
 pub(crate) type Time = i64;
-newtype!(pub Clock(Box<dyn GetTime>));
+pub(crate) struct Clock {
+    inner: Box<dyn GetTime>,
+}
+
+impl<T: GetTime> From<T> for Clock {
+    fn from(time_getter: T) -> Self {
+        Self {
+            inner: Box::new(time_getter),
+        }
+    }
+}
+
 impl Clock {
     pub(crate) fn get_time(&self) -> Time {
-        self.0.get_time()
+        self.inner.get_time()
     }
 }
 
 impl Clone for Clock {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -124,9 +137,9 @@ fn get_relay_fee(tx: &Transaction) -> Amount {
 }
 
 pub trait Mempool<C> {
-    fn create(
+    fn create<T: GetTime>(
         chain_state: C,
-        clock: Option<Clock>,
+        clock: Option<T>,
         memory_usage_estimator: Option<MemoryUsage>,
     ) -> Self;
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error>;
@@ -718,12 +731,16 @@ impl GetTime for SystemClock {
 }
 
 impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
-    fn create(
+    fn create<T: GetTime + 'static>(
         chain_state: C,
-        clock: Option<Clock>,
+        clock: Option<T>,
         memory_usage_estimator: Option<MemoryUsage>,
     ) -> Self {
-        let clock = clock.unwrap_or_else(|| Clock(Box::new(SystemClock {})));
+        let clock: Clock = if let Some(clock) = clock {
+            Clock::from(clock)
+        } else {
+            Clock::from(SystemClock {})
+        };
         Self {
             store: MempoolStore::new(),
             chain_state,
@@ -791,6 +808,8 @@ mod tests {
     use common::chain::transaction::{Destination, TxInput, TxOutput};
     use common::chain::OutPointSourceId;
     use rand::Rng;
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::Arc;
 
     // TODO make lazy static and call to_vec here
     const DUMMY_WITNESS_MSG: &[u8] = b"dummy_witness_msg";
@@ -1212,7 +1231,7 @@ mod tests {
     }
 
     fn setup() -> MempoolImpl<ChainStateMock> {
-        MempoolImpl::create(ChainStateMock::new(), None, None)
+        MempoolImpl::create::<SystemClock>(ChainStateMock::new(), None, None)
     }
 
     #[test]
@@ -1849,9 +1868,6 @@ mod tests {
         Ok(())
     }
 
-    use std::sync::atomic::{AtomicI64, Ordering};
-    use std::sync::Arc;
-
     #[derive(Clone)]
     struct MockClock {
         time: Arc<AtomicI64>,
@@ -1878,9 +1894,9 @@ mod tests {
     #[test]
     fn expired_entries_removed() -> anyhow::Result<()> {
         let mock_clock = MockClock::new();
-        let mempool_clock = Clock(Box::new(mock_clock.clone()));
 
-        let mut mempool = MempoolImpl::create(ChainStateMock::new(), Some(mempool_clock), None);
+        let mut mempool =
+            MempoolImpl::create(ChainStateMock::new(), Some(mock_clock.clone()), None);
         let mut tx_generator = TxGenerator::new(&mempool);
         let expired_tx = tx_generator.generate_tx().expect("generate expired_tx");
         let new_tx = tx_generator.generate_tx().expect("generate new_tx");
@@ -1893,6 +1909,7 @@ mod tests {
         Ok(())
     }
 
+    /*
     #[test]
     fn rolling_fee() -> anyhow::Result<()> {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1902,10 +1919,14 @@ mod tests {
         let usage_clone = Arc::clone(&usage);
         let memory_usage_estimator =
             MemoryUsage(Box::new(move || usage_clone.load(Ordering::SeqCst)));
-        let mut mempool =
-            MempoolImpl::create(ChainStateMock::new(), None, Some(memory_usage_estimator));
+        let mut mempool = MempoolImpl::create(
+            ChainStateMock::new(),
+            Some(SystemClock),
+            Some(memory_usage_estimator),
+        );
 
         let mut tx_generator = TxGenerator::new(&mempool);
         Ok(())
     }
+    */
 }
