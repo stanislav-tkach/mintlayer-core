@@ -21,6 +21,7 @@ pub(crate) struct RollingFeeRate {
     size_limit: usize,
 }
 
+// TODO update this struct when a new block is processed
 #[derive(Clone, Copy, Debug)]
 struct RollingFeeRateInner {
     block_since_last_rolling_fee_bump: bool,
@@ -64,11 +65,6 @@ impl RollingFeeRate {
             clock,
         }
     }
-
-    // TODO need to update halflife according to memory usage and size limits
-    // TODO update this struct when TX is finalized
-    // TODO update this struct when a new block is processed
-    // TODO this needs to be tested
 
     pub(crate) fn get_min_fee_rate(&self) -> FeeRate {
         self.inner.get().rolling_minimum_fee_rate

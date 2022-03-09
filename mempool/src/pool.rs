@@ -808,7 +808,7 @@ mod tests {
     use common::chain::transaction::{Destination, TxInput, TxOutput};
     use common::chain::OutPointSourceId;
     use rand::Rng;
-    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
     use std::sync::Arc;
 
     // TODO make lazy static and call to_vec here
@@ -1909,12 +1909,8 @@ mod tests {
         Ok(())
     }
 
-    /*
     #[test]
     fn rolling_fee() -> anyhow::Result<()> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
         let usage = Arc::new(AtomicUsize::new(MAX_MEMPOOL_SIZE));
         let usage_clone = Arc::clone(&usage);
         let memory_usage_estimator =
@@ -1928,5 +1924,4 @@ mod tests {
         let mut tx_generator = TxGenerator::new(&mempool);
         Ok(())
     }
-    */
 }
