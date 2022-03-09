@@ -48,11 +48,40 @@ impl std::fmt::Debug for MemoryUsage {
     }
 }
 
-type Time = i64;
-newtype!(pub Clock(Box<dyn Fn() -> Time>));
+pub trait GetTimeClone {
+    fn clone_box(&self) -> Box<dyn GetTime>;
+}
+
+impl<T> GetTimeClone for T
+where
+    T: 'static + GetTime + Clone,
+{
+    fn clone_box(&self) -> Box<dyn GetTime> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn GetTime> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+pub trait GetTime: GetTimeClone {
+    fn get_time(&self) -> Time;
+}
+
+pub(crate) type Time = i64;
+newtype!(pub Clock(Box<dyn GetTime>));
 impl Clock {
-    fn get_time(&self) -> Time {
-        self.0()
+    pub(crate) fn get_time(&self) -> Time {
+        self.0.get_time()
+    }
+}
+
+impl Clone for Clock {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -680,19 +709,32 @@ impl<C: ChainState> SpendsUnconfirmed<C> for TxInput {
     }
 }
 
+#[derive(Clone)]
+struct SystemClock;
+impl GetTime for SystemClock {
+    fn get_time(&self) -> Time {
+        common::primitives::time::get()
+    }
+}
+
 impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
     fn create(
         chain_state: C,
         clock: Option<Clock>,
         memory_usage_estimator: Option<MemoryUsage>,
     ) -> Self {
+        let clock = clock.unwrap_or_else(|| Clock(Box::new(SystemClock {})));
         Self {
             store: MempoolStore::new(),
             chain_state,
             max_size: MAX_MEMPOOL_SIZE,
             max_tx_age: DEFAULT_MEMPOOL_EXPIRY,
-            rolling_fee_rate: RollingFeeRate::new(memory_usage_estimator, MAX_MEMPOOL_SIZE),
-            clock: clock.unwrap_or_else(|| Clock(Box::new(common::primitives::time::get))),
+            rolling_fee_rate: RollingFeeRate::new(
+                memory_usage_estimator,
+                MAX_MEMPOOL_SIZE,
+                clock.clone(),
+            ),
+            clock,
         }
     }
 
@@ -1807,22 +1849,44 @@ mod tests {
         Ok(())
     }
 
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct MockClock {
+        time: Arc<AtomicI64>,
+    }
+
+    impl MockClock {
+        fn new() -> Self {
+            Self {
+                time: Arc::new(AtomicI64::new(0)),
+            }
+        }
+
+        fn set(&self, time: Time) {
+            self.time.store(time, Ordering::SeqCst)
+        }
+    }
+
+    impl GetTime for MockClock {
+        fn get_time(&self) -> Time {
+            self.time.load(Ordering::SeqCst)
+        }
+    }
+
     #[test]
     fn expired_entries_removed() -> anyhow::Result<()> {
-        use std::sync::atomic::{AtomicI64, Ordering};
-        use std::sync::Arc;
+        let mock_clock = MockClock::new();
+        let mempool_clock = Clock(Box::new(mock_clock.clone()));
 
-        let time = Arc::new(AtomicI64::new(0));
-        let time_clone = Arc::clone(&time);
-        let time_getter = Clock(Box::new(move || time_clone.load(Ordering::SeqCst)));
-
-        let mut mempool = MempoolImpl::create(ChainStateMock::new(), Some(time_getter), None);
+        let mut mempool = MempoolImpl::create(ChainStateMock::new(), Some(mempool_clock), None);
         let mut tx_generator = TxGenerator::new(&mempool);
         let expired_tx = tx_generator.generate_tx().expect("generate expired_tx");
         let new_tx = tx_generator.generate_tx().expect("generate new_tx");
         let expired_tx_id = expired_tx.get_id();
         mempool.add_transaction(expired_tx)?;
-        time.store(DEFAULT_MEMPOOL_EXPIRY + 1, Ordering::SeqCst);
+        mock_clock.set(DEFAULT_MEMPOOL_EXPIRY + 1);
 
         mempool.add_transaction(new_tx)?;
         assert!(!mempool.contains_transaction(&expired_tx_id));

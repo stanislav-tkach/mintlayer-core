@@ -1,11 +1,11 @@
 use std::cell::Cell;
-use std::time::Duration;
-use std::time::Instant;
 
 use common::primitives::amount::Amount;
 
 use crate::error::TxValidationError;
+use crate::pool::Clock;
 use crate::pool::MemoryUsage;
+use crate::pool::Time;
 
 const ROLLING_FEE_HALF_LIFE: usize = 60 * 60 * 12;
 
@@ -17,6 +17,7 @@ lazy_static::lazy_static! {
 pub(crate) struct RollingFeeRate {
     inner: Cell<RollingFeeRateInner>,
     memory_usage_estimator: Option<MemoryUsage>,
+    clock: Clock,
     size_limit: usize,
 }
 
@@ -24,18 +25,18 @@ pub(crate) struct RollingFeeRate {
 struct RollingFeeRateInner {
     block_since_last_rolling_fee_bump: bool,
     rolling_minimum_fee_rate: FeeRate,
-    last_rolling_fee_update: Instant,
+    last_rolling_fee_update: Time,
 }
 
 impl RollingFeeRateInner {
-    fn decay_fee(mut self, halflife: usize) -> Result<Self, TxValidationError> {
+    fn decay_fee(mut self, halflife: usize, current_time: Time) -> Result<Self, TxValidationError> {
         self.rolling_minimum_fee_rate = (self.rolling_minimum_fee_rate.tokens_per_byte
             / (Amount::from(2)
-                .pow((self.last_rolling_fee_update.elapsed().as_secs()) as usize / halflife))
+                .pow((current_time - self.last_rolling_fee_update) as usize / halflife))
             .ok_or(TxValidationError::FeeRateError)?)
         .map(FeeRate::new)
         .ok_or(TxValidationError::FeeRateError)?;
-        self.last_rolling_fee_update = Instant::now();
+        self.last_rolling_fee_update = current_time;
         Ok(self)
     }
 
@@ -46,16 +47,21 @@ impl RollingFeeRateInner {
 }
 
 impl RollingFeeRate {
-    pub(crate) fn new(memory_usage_estimator: Option<MemoryUsage>, size_limit: usize) -> Self {
+    pub(crate) fn new(
+        memory_usage_estimator: Option<MemoryUsage>,
+        size_limit: usize,
+        clock: Clock,
+    ) -> Self {
         let inner = Cell::new(RollingFeeRateInner {
             block_since_last_rolling_fee_bump: false,
             rolling_minimum_fee_rate: FeeRate::new(0),
-            last_rolling_fee_update: Instant::now(),
+            last_rolling_fee_update: clock.get_time(),
         });
         Self {
             inner,
             memory_usage_estimator,
             size_limit,
+            clock,
         }
     }
 
@@ -69,7 +75,8 @@ impl RollingFeeRate {
     }
 
     fn decay_fee(&self) -> Result<(), TxValidationError> {
-        self.inner.set(self.inner.get().decay_fee(self.halflife())?);
+        self.inner
+            .set(self.inner.get().decay_fee(self.halflife(), self.clock.get_time())?);
         Ok(())
     }
 
@@ -81,7 +88,7 @@ impl RollingFeeRate {
         self.inner.get().block_since_last_rolling_fee_bump
     }
 
-    fn last_rolling_fee_update(&self) -> Instant {
+    fn last_rolling_fee_update(&self) -> Time {
         self.inner.get().last_rolling_fee_update
     }
 
@@ -109,7 +116,7 @@ impl RollingFeeRate {
     pub(crate) fn get_update_min_fee_rate(&self) -> Result<FeeRate, TxValidationError> {
         if !self.block_since_last_rolling_fee_bump() || self.get_min_fee_rate() == FeeRate::new(0) {
             return Ok(self.get_min_fee_rate());
-        } else if Instant::now() > self.last_rolling_fee_update() + Duration::from_secs(10) {
+        } else if self.clock.get_time() > self.last_rolling_fee_update() + 10 {
             // Decay the rolling fee
             self.decay_fee()?;
 
