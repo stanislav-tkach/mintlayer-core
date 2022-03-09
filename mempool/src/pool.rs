@@ -1836,4 +1836,20 @@ mod tests {
         assert!(!mempool.contains_transaction(&expired_tx_id));
         Ok(())
     }
+
+    #[test]
+    fn rolling_fee() -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let usage = Arc::new(AtomicUsize::new(MAX_MEMPOOL_SIZE));
+        let usage_clone = Arc::clone(&usage);
+        let memory_usage_estimator =
+            MemoryUsage(Box::new(move || usage_clone.load(Ordering::SeqCst)));
+        let mut mempool =
+            MempoolImpl::create(ChainStateMock::new(), None, Some(memory_usage_estimator));
+
+        let mut tx_generator = TxGenerator::new(&mempool);
+        Ok(())
+    }
 }
