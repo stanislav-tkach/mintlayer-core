@@ -36,6 +36,18 @@ const MAX_MEMPOOL_SIZE: usize = 3_000_000;
 
 const DEFAULT_MEMPOOL_EXPIRY: i64 = 336 * 60 * 60;
 
+newtype!(pub MemoryUsage(Box<dyn Fn() -> usize>));
+impl MemoryUsage {
+    pub(crate) fn get_memory_usage(&self) -> usize {
+        self.0()
+    }
+}
+impl std::fmt::Debug for MemoryUsage {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
 type Time = i64;
 newtype!(pub Clock(Box<dyn Fn() -> Time>));
 impl Clock {
@@ -83,7 +95,11 @@ fn get_relay_fee(tx: &Transaction) -> Amount {
 }
 
 pub trait Mempool<C> {
-    fn create(chain_state: C, clock: Option<Clock>) -> Self;
+    fn create(
+        chain_state: C,
+        clock: Option<Clock>,
+        memory_usage_estimator: Option<MemoryUsage>,
+    ) -> Self;
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error>;
     fn get_all(&self) -> Vec<&Transaction>;
     fn contains_transaction(&self, tx: &Id<Transaction>) -> bool;
@@ -628,6 +644,7 @@ impl<C: ChainState> MempoolImpl<C> {
             self.store.drop_tx_and_descendants(tx_id)
         }
     }
+
     fn trim(&mut self) -> Result<FeeRate, Error> {
         let mut updated_min_fee_rate = FeeRate::new(0);
         while !self.store.is_empty() && self.store.memory_usage() > self.max_size {
@@ -664,13 +681,17 @@ impl<C: ChainState> SpendsUnconfirmed<C> for TxInput {
 }
 
 impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
-    fn create(chain_state: C, clock: Option<Clock>) -> Self {
+    fn create(
+        chain_state: C,
+        clock: Option<Clock>,
+        memory_usage_estimator: Option<MemoryUsage>,
+    ) -> Self {
         Self {
             store: MempoolStore::new(),
             chain_state,
             max_size: MAX_MEMPOOL_SIZE,
             max_tx_age: DEFAULT_MEMPOOL_EXPIRY,
-            rolling_fee_rate: RollingFeeRate::new(),
+            rolling_fee_rate: RollingFeeRate::new(memory_usage_estimator, MAX_MEMPOOL_SIZE),
             clock: clock.unwrap_or_else(|| Clock(Box::new(common::primitives::time::get))),
         }
     }
@@ -1157,7 +1178,7 @@ mod tests {
     }
 
     fn setup() -> MempoolImpl<ChainStateMock> {
-        MempoolImpl::create(ChainStateMock::new(), None)
+        MempoolImpl::create(ChainStateMock::new(), None, None)
     }
 
     #[test]
@@ -1803,7 +1824,7 @@ mod tests {
         let time_clone = Arc::clone(&time);
         let time_getter = Clock(Box::new(move || time_clone.load(Ordering::SeqCst)));
 
-        let mut mempool = MempoolImpl::create(ChainStateMock::new(), Some(time_getter));
+        let mut mempool = MempoolImpl::create(ChainStateMock::new(), Some(time_getter), None);
         let mut tx_generator = TxGenerator::new(&mempool);
         let expired_tx = tx_generator.generate_tx().expect("generate expired_tx");
         let new_tx = tx_generator.generate_tx().expect("generate new_tx");

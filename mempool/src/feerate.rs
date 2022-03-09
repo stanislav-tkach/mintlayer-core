@@ -5,8 +5,9 @@ use std::time::Instant;
 use common::primitives::amount::Amount;
 
 use crate::error::TxValidationError;
+use crate::pool::MemoryUsage;
 
-const ROLLING_FEE_HALF_LIFE: Duration = Duration::from_secs(60 * 60 * 12);
+const ROLLING_FEE_HALF_LIFE: usize = 60 * 60 * 12;
 
 lazy_static::lazy_static! {
     pub(crate) static ref INCREMENTAL_RELAY_FEE_RATE: FeeRate = FeeRate::new(1000);
@@ -15,6 +16,8 @@ lazy_static::lazy_static! {
 #[derive(Debug)]
 pub(crate) struct RollingFeeRate {
     inner: Cell<RollingFeeRateInner>,
+    memory_usage_estimator: Option<MemoryUsage>,
+    size_limit: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -25,12 +28,10 @@ struct RollingFeeRateInner {
 }
 
 impl RollingFeeRateInner {
-    fn decay_fee(mut self) -> Result<Self, TxValidationError> {
+    fn decay_fee(mut self, halflife: usize) -> Result<Self, TxValidationError> {
         self.rolling_minimum_fee_rate = (self.rolling_minimum_fee_rate.tokens_per_byte
-            / (Amount::from(2).pow(
-                (self.last_rolling_fee_update.elapsed().as_secs()) as usize
-                    / self.halflife().as_secs() as usize,
-            ))
+            / (Amount::from(2)
+                .pow((self.last_rolling_fee_update.elapsed().as_secs()) as usize / halflife))
             .ok_or(TxValidationError::FeeRateError)?)
         .map(FeeRate::new)
         .ok_or(TxValidationError::FeeRateError)?;
@@ -42,20 +43,20 @@ impl RollingFeeRateInner {
         self.rolling_minimum_fee_rate = FeeRate::new(0);
         self
     }
-
-    fn halflife(&self) -> Duration {
-        ROLLING_FEE_HALF_LIFE
-    }
 }
 
 impl RollingFeeRate {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(memory_usage_estimator: Option<MemoryUsage>, size_limit: usize) -> Self {
         let inner = Cell::new(RollingFeeRateInner {
             block_since_last_rolling_fee_bump: false,
             rolling_minimum_fee_rate: FeeRate::new(0),
             last_rolling_fee_update: Instant::now(),
         });
-        Self { inner }
+        Self {
+            inner,
+            memory_usage_estimator,
+            size_limit,
+        }
     }
 
     // TODO need to update halflife according to memory usage and size limits
@@ -68,7 +69,7 @@ impl RollingFeeRate {
     }
 
     fn decay_fee(&self) -> Result<(), TxValidationError> {
-        self.inner.set(self.inner.get().decay_fee()?);
+        self.inner.set(self.inner.get().decay_fee(self.halflife())?);
         Ok(())
     }
 
@@ -88,6 +89,21 @@ impl RollingFeeRate {
         let rolling_fee_rate = self.inner.get_mut();
         rolling_fee_rate.rolling_minimum_fee_rate = rate;
         rolling_fee_rate.block_since_last_rolling_fee_bump = false;
+    }
+
+    fn halflife(&self) -> usize {
+        if let Some(memory_usage_estimator) = &self.memory_usage_estimator {
+            let mem_usage = memory_usage_estimator.get_memory_usage();
+            if mem_usage < self.size_limit / 4 {
+                ROLLING_FEE_HALF_LIFE / 4
+            } else if mem_usage < self.size_limit / 2 {
+                ROLLING_FEE_HALF_LIFE / 2
+            } else {
+                ROLLING_FEE_HALF_LIFE
+            }
+        } else {
+            ROLLING_FEE_HALF_LIFE
+        }
     }
 
     pub(crate) fn get_update_min_fee_rate(&self) -> Result<FeeRate, TxValidationError> {
