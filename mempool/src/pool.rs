@@ -698,7 +698,7 @@ impl<C: ChainState> MempoolImpl<C> {
                 .ok_or(TxValidationError::FeeRateError)?;
             updated_min_fee_rate = std::cmp::max(updated_min_fee_rate, removed_fee_rate);
             //TODO drop all descendants
-            self.drop_transaction(&removed.tx.get_id())
+            self.store.drop_tx_and_descendants(removed.tx.get_id())
         }
         Ok(updated_min_fee_rate)
     }
