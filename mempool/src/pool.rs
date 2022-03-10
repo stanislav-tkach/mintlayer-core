@@ -72,6 +72,8 @@ pub trait GetTime: GetTimeClone + 'static {
 }
 
 pub(crate) type Time = i64;
+
+#[derive(Clone)]
 pub(crate) struct Clock {
     inner: Box<dyn GetTime>,
 }
@@ -87,14 +89,6 @@ impl<T: GetTime> From<T> for Clock {
 impl Clock {
     pub(crate) fn get_time(&self) -> Time {
         self.inner.get_time()
-    }
-}
-
-impl Clone for Clock {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
     }
 }
 
@@ -808,7 +802,7 @@ mod tests {
     use common::chain::transaction::{Destination, TxInput, TxOutput};
     use common::chain::OutPointSourceId;
     use rand::Rng;
-    use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::Arc;
 
     // TODO make lazy static and call to_vec here
@@ -1909,6 +1903,7 @@ mod tests {
         Ok(())
     }
 
+    /*
     #[test]
     fn rolling_fee() -> anyhow::Result<()> {
         let usage = Arc::new(AtomicUsize::new(MAX_MEMPOOL_SIZE));
@@ -1924,4 +1919,5 @@ mod tests {
         let mut tx_generator = TxGenerator::new(&mempool);
         Ok(())
     }
+    */
 }
