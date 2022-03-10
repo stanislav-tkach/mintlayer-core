@@ -4,7 +4,7 @@ use common::primitives::amount::Amount;
 
 use crate::error::TxValidationError;
 use crate::pool::Clock;
-use crate::pool::MemoryUsage;
+use crate::pool::MemoryUsageEstimator;
 use crate::pool::Time;
 
 const ROLLING_FEE_HALF_LIFE: usize = 60 * 60 * 12;
@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
 #[derive(Debug)]
 pub(crate) struct RollingFeeRate {
     inner: Cell<RollingFeeRateInner>,
-    memory_usage_estimator: Option<MemoryUsage>,
+    memory_usage_estimator: MemoryUsageEstimator,
     clock: Clock,
     size_limit: usize,
 }
@@ -49,7 +49,7 @@ impl RollingFeeRateInner {
 
 impl RollingFeeRate {
     pub(crate) fn new(
-        memory_usage_estimator: Option<MemoryUsage>,
+        memory_usage_estimator: MemoryUsageEstimator,
         size_limit: usize,
         clock: Clock,
     ) -> Self {
@@ -95,15 +95,11 @@ impl RollingFeeRate {
     }
 
     fn halflife(&self) -> usize {
-        if let Some(memory_usage_estimator) = &self.memory_usage_estimator {
-            let mem_usage = memory_usage_estimator.get_memory_usage();
-            if mem_usage < self.size_limit / 4 {
-                ROLLING_FEE_HALF_LIFE / 4
-            } else if mem_usage < self.size_limit / 2 {
-                ROLLING_FEE_HALF_LIFE / 2
-            } else {
-                ROLLING_FEE_HALF_LIFE
-            }
+        let mem_usage = self.memory_usage_estimator.get_memory_usage();
+        if mem_usage < self.size_limit / 4 {
+            ROLLING_FEE_HALF_LIFE / 4
+        } else if mem_usage < self.size_limit / 2 {
+            ROLLING_FEE_HALF_LIFE / 2
         } else {
             ROLLING_FEE_HALF_LIFE
         }

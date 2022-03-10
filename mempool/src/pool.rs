@@ -36,15 +36,51 @@ const MAX_MEMPOOL_SIZE: usize = 3_000_000;
 
 const DEFAULT_MEMPOOL_EXPIRY: i64 = 336 * 60 * 60;
 
-newtype!(pub MemoryUsage(Box<dyn Fn() -> usize>));
-impl MemoryUsage {
+pub(crate) type MemoryUsage = usize;
+pub trait GetMemoryUsage: GetMemoryUsageClone + 'static {
+    fn get_memory_usage(&self) -> MemoryUsage;
+}
+
+#[derive(Clone)]
+pub(crate) struct MemoryUsageEstimator {
+    inner: Box<dyn GetMemoryUsage>,
+}
+
+impl MemoryUsageEstimator {
     pub(crate) fn get_memory_usage(&self) -> usize {
-        self.0()
+        self.inner.get_memory_usage()
     }
 }
-impl std::fmt::Debug for MemoryUsage {
+impl std::fmt::Debug for MemoryUsageEstimator {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
+    }
+}
+
+pub trait GetMemoryUsageClone {
+    fn clone_box(&self) -> Box<dyn GetMemoryUsage>;
+}
+
+impl<T> GetMemoryUsageClone for T
+where
+    T: 'static + GetMemoryUsage + Clone,
+{
+    fn clone_box(&self) -> Box<dyn GetMemoryUsage> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn GetMemoryUsage> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+impl<T: GetMemoryUsage> From<T> for MemoryUsageEstimator {
+    fn from(memory_usage: T) -> Self {
+        Self {
+            inner: Box::new(memory_usage),
+        }
     }
 }
 
@@ -131,10 +167,10 @@ fn get_relay_fee(tx: &Transaction) -> Amount {
 }
 
 pub trait Mempool<C> {
-    fn create<T: GetTime>(
+    fn create<T: GetTime, M: GetMemoryUsage>(
         chain_state: C,
         clock: Option<T>,
-        memory_usage_estimator: Option<MemoryUsage>,
+        memory_usage_estimator: Option<M>,
     ) -> Self;
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error>;
     fn get_all(&self) -> Vec<&Transaction>;
@@ -724,17 +760,32 @@ impl GetTime for SystemClock {
     }
 }
 
+#[derive(Clone)]
+struct SystemUsageEstimator;
+impl GetMemoryUsage for SystemUsageEstimator {
+    fn get_memory_usage(&self) -> MemoryUsage {
+        0
+    }
+}
+
 impl<C: ChainState> Mempool<C> for MempoolImpl<C> {
-    fn create<T: GetTime + 'static>(
+    fn create<T: GetTime + 'static, M: GetMemoryUsage + 'static>(
         chain_state: C,
         clock: Option<T>,
-        memory_usage_estimator: Option<MemoryUsage>,
+        memory_usage_estimator: Option<M>,
     ) -> Self {
         let clock: Clock = if let Some(clock) = clock {
             Clock::from(clock)
         } else {
             Clock::from(SystemClock {})
         };
+
+        let memory_usage_estimator: MemoryUsageEstimator =
+            if let Some(memory_usage_estimator) = memory_usage_estimator {
+                MemoryUsageEstimator::from(memory_usage_estimator)
+            } else {
+                MemoryUsageEstimator::from(SystemUsageEstimator {})
+            };
         Self {
             store: MempoolStore::new(),
             chain_state,
@@ -1225,7 +1276,7 @@ mod tests {
     }
 
     fn setup() -> MempoolImpl<ChainStateMock> {
-        MempoolImpl::create::<SystemClock>(ChainStateMock::new(), None, None)
+        MempoolImpl::create::<SystemClock, SystemUsageEstimator>(ChainStateMock::new(), None, None)
     }
 
     #[test]
@@ -1889,8 +1940,11 @@ mod tests {
     fn expired_entries_removed() -> anyhow::Result<()> {
         let mock_clock = MockClock::new();
 
-        let mut mempool =
-            MempoolImpl::create(ChainStateMock::new(), Some(mock_clock.clone()), None);
+        let mut mempool = MempoolImpl::create::<_, SystemUsageEstimator>(
+            ChainStateMock::new(),
+            Some(mock_clock.clone()),
+            None,
+        );
         let mut tx_generator = TxGenerator::new(&mempool);
         let expired_tx = tx_generator.generate_tx().expect("generate expired_tx");
         let new_tx = tx_generator.generate_tx().expect("generate new_tx");
