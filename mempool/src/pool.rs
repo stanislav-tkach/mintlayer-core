@@ -663,6 +663,7 @@ mod tests {
     use common::chain::config::create_mainnet;
     use common::chain::transaction::{Destination, TxInput, TxOutput};
     use common::chain::OutPointSourceId;
+    use core::panic;
     use rand::Rng;
 
     const DUMMY_WITNESS_MSG: &[u8] = b"dummy_witness_msg";
@@ -1391,19 +1392,21 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .sum::<Option<_>>()
-            .expect("tx_spend_input: overflow");
+            .ok_or_else(|| anyhow::anyhow!("tx_spend_input: overflow"))?;
 
         let available_for_spending = (input_value - fee).ok_or_else(|| {
-            anyhow::anyhow!(
+            let msg = format!(
                 "tx_spend_several_inputs: input_value ({:?}) lower than fee ({:?})",
-                input_value,
-                fee
-            )
+                input_value, fee
+            );
+            anyhow::Error::msg(msg)
         })?;
         let spent = (available_for_spending / 2).expect("division error");
 
-        let change = (available_for_spending - spent)
-            .expect("tx_spend_several_inputs: underflow_computing change");
+        let change = (available_for_spending - spent).ok_or_else(|| {
+            let msg = String::from("Error computing change");
+            anyhow::Error::msg(msg)
+        })?;
 
         Transaction::new(
             flags,
