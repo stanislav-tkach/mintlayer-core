@@ -59,7 +59,7 @@ pub enum TxValidationError {
     #[error("AdditionalFeesUnderflow")]
     AdditionalFeesUnderflow,
     #[error("InsufficientFeesToRelay")]
-    InsufficientFeesToRelay,
+    InsufficientFeesToRelay { tx_fee: Amount, relay_fee: Amount },
     #[error("InsufficientFeesToRelayRBF")]
     InsufficientFeesToRelayRBF,
     #[error("RollingFeeThresholdNotMet")]
