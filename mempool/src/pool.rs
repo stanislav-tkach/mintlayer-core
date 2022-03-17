@@ -609,9 +609,11 @@ where
     }
 
     fn pays_minimum_relay_fees(&self, tx: &Transaction) -> Result<(), TxValidationError> {
-        (self.try_get_fee(tx)? >= get_relay_fee(tx))
+        let tx_fee = self.try_get_fee(tx)?;
+        let relay_fee = get_relay_fee(tx);
+        (tx_fee >= relay_fee)
             .then(|| ())
-            .ok_or(TxValidationError::InsufficientFeesToRelay)
+            .ok_or(TxValidationError::InsufficientFeesToRelay { tx_fee, relay_fee })
     }
 
     fn rbf_checks(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
@@ -1232,7 +1234,7 @@ mod tests {
                 self.num_inputs,
                 self.num_outputs,
             )));
-            let valued_inputs = self.generate_tx_inputs();
+            let valued_inputs = self.generate_tx_inputs()?;
             let outputs = self.generate_tx_outputs(&valued_inputs)?;
             let locktime = 0;
             let flags = if self.replaceable { 1 } else { 0 };
@@ -1253,11 +1255,22 @@ mod tests {
             Ok(tx)
         }
 
-        fn generate_tx_inputs(&mut self) -> Vec<(TxInput, Amount)> {
-            std::iter::repeat(())
-                .take(self.num_inputs)
-                .filter_map(|_| self.generate_input().ok())
-                .collect()
+        fn generate_tx_inputs(&mut self) -> anyhow::Result<Vec<(TxInput, Amount)>> {
+            Ok(self
+                .get_unspent_outpoints(self.num_inputs)?
+                .iter()
+                .map(|valued_outpoint| {
+                    let ValuedOutPoint { outpoint, value } = valued_outpoint;
+                    (
+                        TxInput::new(
+                            outpoint.get_tx_id(),
+                            outpoint.get_output_index(),
+                            DUMMY_WITNESS_MSG.to_vec(),
+                        ),
+                        value.to_owned(),
+                    )
+                })
+                .collect())
         }
 
         fn generate_tx_outputs(
@@ -1283,7 +1296,7 @@ mod tests {
             let mut left_to_spend = total_to_spend;
             let mut outputs = Vec::new();
 
-            let max_output_value = Amount::from_atoms(10_000);
+            let max_output_value = Amount::from_atoms(100_000);
             // We want every output to be spendable in a single-input, single-output transaction
             // So it has to larger in value than the relay fee for such a transaction
             let min_output_value = Amount::from_atoms(1000);
@@ -1304,24 +1317,10 @@ mod tests {
             Ok(outputs)
         }
 
-        fn generate_input(&self) -> anyhow::Result<(TxInput, Amount)> {
-            let ValuedOutPoint { outpoint, value } = self.get_unspent_outpoint()?;
-            Ok((
-                TxInput::new(
-                    outpoint.get_tx_id(),
-                    outpoint.get_output_index(),
-                    DUMMY_WITNESS_MSG.to_vec(),
-                ),
-                value,
-            ))
-        }
-
-        fn get_unspent_outpoint(&self) -> anyhow::Result<ValuedOutPoint> {
-            let num_outpoints = self.coin_pool.len();
-            (num_outpoints > 0)
-                .then(|| {
-                    self.coin_pool.iter().next().cloned().expect("Outpoint set should not be empty")
-                })
+        fn get_unspent_outpoints(&self, num_outputs: usize) -> anyhow::Result<Vec<ValuedOutPoint>> {
+            let num_available_outpoints = self.coin_pool.len();
+            (num_available_outpoints >= num_outputs)
+                .then(|| self.coin_pool.iter().take(num_outputs).cloned().collect())
                 .ok_or_else(|| anyhow::anyhow!("no outpoints left"))
         }
     }
