@@ -483,7 +483,9 @@ where
     }
 
     fn get_memory_usage(&self) -> usize {
-        self.memory_usage_estimator.get_memory_usage()
+        let res = self.memory_usage_estimator.get_memory_usage();
+        println!("memory_usage: {}", res);
+        res
     }
 
     pub(crate) fn update_min_fee_rate(&self, rate: FeeRate) {
@@ -639,6 +641,7 @@ where
         (tx_fee >= minimum_fee)
             .then(|| ())
             .ok_or(TxValidationError::RollingFeeThresholdNotMet {
+                tx_id: tx.get_id().get(),
                 minimum_fee,
                 tx_fee,
             })
@@ -799,12 +802,11 @@ where
         let entry = self.create_entry(tx)?;
         let id = entry.tx.get_id().get();
         self.store.add_tx(entry);
-        self.limit_mempool_size()?;
         self.store.txs_by_id.contains_key(&id).then(|| ()).ok_or(Error::MempoolFull)
     }
 
-    fn limit_mempool_size(&mut self) -> Result<(), Error> {
-        let removed_fees = self.trim()?;
+    fn limit_mempool_size(&mut self, tx_id: H256) -> Result<(), Error> {
+        let removed_fees = self.trim(tx_id)?;
         if !removed_fees.is_empty() {
             let new_minimum_fee_rate =
                 (*removed_fees.iter().max().expect("removed_fees should not be empty")
@@ -842,7 +844,7 @@ where
     }
 
     // TODO maybe don't need result
-    fn trim(&mut self) -> Result<Vec<FeeRate>, Error> {
+    fn trim(&mut self, tx_id: H256) -> Result<Vec<FeeRate>, Error> {
         let mut removed_fees = Vec::new();
         while !self.store.is_empty() && self.get_memory_usage() > self.max_size {
             // TODO sort by descendant score, not by fee
@@ -854,6 +856,13 @@ where
                 .get(removed_id)
                 .expect("tx with id should exist")
                 .to_owned();
+            println!(
+                "Mempool trim: Context: {}. Evicting tx {} which pays a fee of {:?} and has size {}",
+                tx_id,
+                removed.tx_id(),
+                removed.fee,
+                removed.tx.encoded_size()
+            );
 
             log::debug!(
                 "Mempool trim: Evicting tx {} which pays a fee of {:?} and has size {}",
@@ -936,7 +945,7 @@ where
     //
 
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error> {
-        self.limit_mempool_size()?;
+        self.limit_mempool_size(tx.get_id().get())?;
         let expired_entries = self.get_expired_entries();
         let validation_result = self.validate_transaction(&tx, &expired_entries);
         for tx_id in expired_entries.iter() {
@@ -1778,13 +1787,18 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .sum::<Option<_>>()
-            .ok_or_else(|| anyhow::anyhow!("tx_spend_input: overflow"))?;
+            .ok_or_else(|| {
+                let msg = String::from("tx_spend_input: overflow");
+                println!("{}", msg);
+                anyhow::Error::msg(msg)
+            })?;
 
         let available_for_spending = (input_value - fee).ok_or_else(|| {
             let msg = format!(
                 "tx_spend_several_inputs: input_value ({:?}) lower than fee ({:?})",
                 input_value, fee
             );
+            println!("{}", msg);
             anyhow::Error::msg(msg)
         })?;
         let spent = (available_for_spending / 2.into()).expect("division error");
@@ -2223,10 +2237,11 @@ mod tests {
     fn test_rolling_fee() -> anyhow::Result<()> {
         let mock_clock = MockClock::new();
         let mut mock_usage = MockGetMemoryUsage::new();
-        // Add parent
-        // Add first child
-        mock_usage.expect_get_memory_usage().times(2).return_const(0usize);
-        // Add second child, triggering the trimming process
+        // When adding parent, the mempool will be empty so we won't reach the call to memory usage
+        // in the call to trim
+        // For adding child_0
+        mock_usage.expect_get_memory_usage().times(1).return_const(0usize);
+        // For adding child_1 second child, triggering the trimming process
         mock_usage.expect_get_memory_usage().times(1).return_const(MAX_MEMPOOL_SIZE + 1);
         // After removing one entry, cause the code to exit the loop by showing a small usage
         mock_usage.expect_get_memory_usage().return_const(0usize);
@@ -2244,7 +2259,9 @@ mod tests {
             .with_num_outputs(num_outputs)
             .generate_tx(&mempool)?;
         let parent_id = parent.get_id();
+        println!("before parent");
         mempool.add_transaction(parent)?;
+        println!("after parent");
 
         let flags = 0;
         let locktime = 0;
@@ -2260,9 +2277,17 @@ mod tests {
         )?;
         let child_0_id = child_0.get_id();
 
-        let big_fee = Amount::from(
-            get_relay_fee_from_tx_size(estimate_tx_size(num_inputs, num_outputs)) + 100,
-        );
+        let expected_rolling_fee_rate =
+            (FeeRate::of_tx(mempool.try_get_fee(&child_0)?, child_0.encoded_size())?
+                + *INCREMENTAL_RELAY_FEE_RATE)
+                .ok_or_else(|| {
+                    println!("rollingfeerate failure");
+                    anyhow::anyhow!("expected_rolling_fee_rate")
+                })?;
+        println!("expected_rolling_fee_rate: {:?}", expected_rolling_fee_rate);
+        let big_fee =
+            expected_rolling_fee_rate.compute_fee(estimate_tx_size(num_inputs, num_outputs))?;
+        println!("big_fee: {:?}", big_fee);
         let child_1 = tx_spend_input(
             &mempool,
             TxInput::new(outpoint_source_id.clone(), 1, DUMMY_WITNESS_MSG.to_vec()),
@@ -2271,7 +2296,9 @@ mod tests {
             locktime,
         )?;
         let child_1_id = child_1.get_id();
+        println!("before child_0: {}", child_0.get_id().get());
         mempool.add_transaction(child_0.clone())?;
+        println!("before child_1 {}", child_1.get_id().get());
         mempool.add_transaction(child_1)?;
 
         assert_eq!(mempool.store.txs_by_id.len(), 2);
@@ -2294,6 +2321,7 @@ mod tests {
             flags,
             locktime,
         )?;
+        println!("before child2");
         assert!(matches!(
             mempool.add_transaction(child_2),
             Err(Error::TxValidationError(
@@ -2309,6 +2337,7 @@ mod tests {
             flags,
             locktime,
         )?;
+        println!("before child2_high_fee");
         mempool.add_transaction(child_2_high_fee)?;
 
         // We simulate a block being accepted so the rolling fee will begin to decay
@@ -2322,6 +2351,7 @@ mod tests {
         let halflife = ROLLING_FEE_BASE_HALFLIFE / 4;
         mock_clock.increment(halflife);
         let dummy_tx = TxGenerator::new().generate_tx(&mempool)?;
+        println!("before dummy");
         assert!(matches!(
             mempool.add_transaction(dummy_tx.clone()),
             Err(Error::TxValidationError(
@@ -2336,6 +2366,7 @@ mod tests {
         mock_clock.increment(halflife);
         // Fee will have dropped under INCREMENTAL_RELAY_FEE_RATE / 2 by now, so it will be set to
         // zero and our tx will be submitted successfully
+        println!("before second dummy");
         mempool.add_transaction(dummy_tx)?;
         assert_eq!(mempool.get_minimum_rolling_fee(), FeeRate::new(0));
         Ok(())

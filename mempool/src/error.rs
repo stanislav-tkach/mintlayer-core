@@ -62,8 +62,14 @@ pub enum TxValidationError {
     InsufficientFeesToRelay { tx_fee: Amount, relay_fee: Amount },
     #[error("InsufficientFeesToRelayRBF")]
     InsufficientFeesToRelayRBF,
-    #[error("RollingFeeThresholdNotMet")]
-    RollingFeeThresholdNotMet { minimum_fee: Amount, tx_fee: Amount },
+    #[error(
+        "RollingFeeThresholdNotMet: The minimum fee is {minimum_fee:?}, but tx {tx_id} pays {tx_fee:?}"
+    )]
+    RollingFeeThresholdNotMet {
+        tx_id: H256,
+        minimum_fee: Amount,
+        tx_fee: Amount,
+    },
     #[error("FeeRate error")]
     FeeRateError,
     #[error("HasExpiredAncestor")]
