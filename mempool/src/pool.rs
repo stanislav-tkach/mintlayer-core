@@ -2365,4 +2365,56 @@ mod tests {
         log::info!("Total time spent creating: {:?}", time_creating_txs);
         Ok(())
     }
+
+    #[test]
+    fn expired_entries_removed() -> anyhow::Result<()> {
+        let mock_clock = MockClock::new();
+
+        let mut mempool = MempoolImpl::create(
+            ChainStateMock::new(),
+            mock_clock.clone(),
+            SystemUsageEstimator {},
+        );
+
+        let num_inputs = 1;
+        let num_outputs = 2;
+        let big_fee = get_relay_fee_from_tx_size(estimate_tx_size(num_inputs, num_outputs)) + 100;
+        let parent = TxGenerator::new()
+            .with_num_inputs(num_inputs)
+            .with_num_outputs(num_outputs)
+            .with_fee(big_fee.into())
+            .generate_tx(&mempool)?;
+        let parent_id = parent.get_id();
+        mempool.add_transaction(parent)?;
+
+        let flags = 0;
+        let locktime = 0;
+        let outpoint_source_id = OutPointSourceId::Transaction(parent_id);
+        let child_0 = tx_spend_input(
+            &mempool,
+            TxInput::new(outpoint_source_id.clone(), 0, DUMMY_WITNESS_MSG.to_vec()),
+            None,
+            flags,
+            locktime,
+        )?;
+
+        let child_1 = tx_spend_input(
+            &mempool,
+            TxInput::new(outpoint_source_id, 1, DUMMY_WITNESS_MSG.to_vec()),
+            None,
+            flags,
+            locktime,
+        )?;
+        let child_1_id = child_1.get_id();
+
+        let child_0_id = child_0.get_id();
+        mempool.add_transaction(child_0)?;
+
+        mock_clock.set(DEFAULT_MEMPOOL_EXPIRY + 1);
+
+        mempool.add_transaction(child_1)?;
+        assert!(!mempool.contains_transaction(&child_0_id));
+        assert!(!mempool.contains_transaction(&child_1_id));
+        Ok(())
+    }
 }
