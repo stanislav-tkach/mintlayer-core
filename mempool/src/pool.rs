@@ -16,6 +16,8 @@ use common::primitives::Id;
 use common::primitives::Idable;
 use common::primitives::H256;
 
+use logging::log;
+
 use utils::newtype;
 
 use crate::error::Error;
@@ -233,19 +235,19 @@ struct RollingFeeRate {
 
 impl RollingFeeRate {
     fn decay_fee(mut self, halflife: Time, current_time: Time) -> Result<Self, TxValidationError> {
-        println!(
-            "decay_fee: old fee rate:  {:?}",
-            self.rolling_minimum_fee_rate
+        log::trace!(
+            "decay_fee: old fee rate:  {:?}\nCurrent time: {}\nLast Rolling Fee Update: {}\nHalflife: {}",
+            self.rolling_minimum_fee_rate,
+            self.last_rolling_fee_update,
+            current_time,
+            halflife,
         );
-        println!("current_time {}", current_time);
-        println!("last_rolling_fee_update {}", self.last_rolling_fee_update);
-        println!("halflife {}", halflife);
         let divisor =
             2f64.powf((current_time - self.last_rolling_fee_update) as f64 / (halflife as f64));
         self.rolling_minimum_fee_rate =
             FeeRate::new(self.rolling_minimum_fee_rate.tokens_per_byte().div_by_float(divisor));
 
-        println!(
+        log::trace!(
             "decay_fee: new fee rate:  {:?}",
             self.rolling_minimum_fee_rate
         );
@@ -386,7 +388,7 @@ impl MempoolStore {
     }
 
     fn remove_tx(&mut self, tx_id: &Id<Transaction>) {
-        println!("remove_tx: {}", tx_id.get());
+        log::info!("remove_tx: {}", tx_id.get());
         if let Some(entry) = self.txs_by_id.remove(&tx_id.get()) {
             self.update_for_drop(&entry);
             self.drop_tx(&entry);
@@ -420,8 +422,8 @@ impl MempoolStore {
     fn drop_tx_and_descendants(&mut self, tx_id: Id<Transaction>) {
         if let Some(entry) = self.txs_by_id.get(&tx_id.get()).cloned() {
             let descendants = entry.unconfirmed_descendants(self);
-            println!(
-                "about to drop {} which has {} descendants",
+            log::trace!(
+                "Dropping tx {} which has {} descendants",
                 tx_id.get(),
                 descendants.len()
             );
@@ -481,7 +483,7 @@ where
         {
             // Decay the rolling fee
             self.decay_rolling_fee_rate()?;
-            println!(
+            log::debug!(
                 "rolling fee rate after decay_rolling_fee_rate {:?}",
                 self.rolling_fee_rate
             );
@@ -489,7 +491,7 @@ where
             if self.rolling_fee_rate.get().rolling_minimum_fee_rate
                 < (*INCREMENTAL_RELAY_FEE_RATE / FeeRate::new(2)).expect("not division by zero")
             {
-                println!("rolling fee rate {:?} less than half of the incremental fee rate, dropping the fee", self.rolling_fee_rate.get().rolling_minimum_fee_rate);
+                log::trace!("rolling fee rate {:?} less than half of the incremental fee rate, dropping the fee", self.rolling_fee_rate.get().rolling_minimum_fee_rate);
                 self.drop_rolling_fee();
                 return Ok(self.rolling_fee_rate.get().rolling_minimum_fee_rate);
             }
@@ -553,8 +555,8 @@ where
         tx: &Transaction,
     ) -> Result<Amount, TxValidationError> {
         let minimum_fee_rate = self.get_update_min_fee_rate()?;
-        println!("minimum fee rate {:?}", minimum_fee_rate);
-        println!("tx_size: {:?}", tx.encoded_size());
+        log::debug!("minimum fee rate {:?}", minimum_fee_rate);
+        log::debug!("tx_size: {:?}", tx.encoded_size());
 
         minimum_fee_rate.compute_fee(tx.encoded_size())
     }
@@ -796,8 +798,8 @@ where
             .filter(|entry| {
                 let now = self.clock.get_time();
                 if now - entry.creation_time > self.max_tx_age {
-                    println!(
-                        "will evict {} which was created at {} and it is now {}",
+                    log::trace!(
+                        "Evicting tx {} which was created at {}. It is now {}",
                         entry.tx_id(),
                         entry.creation_time,
                         now
@@ -828,8 +830,9 @@ where
                 .expect("tx with id should exist")
                 .to_owned();
 
-            println!(
-                "removed tx pays a fee of {:?} and has size {}",
+            log::debug!(
+                "Mempool trim: Evicting tx {} which pays a fee of {:?} and has size {}",
+                removed.tx_id(),
                 removed.fee,
                 removed.tx.encoded_size()
             );
@@ -1001,9 +1004,11 @@ mod tests {
         // Take twice the encoded size of the dummy tx.Real Txs are larger than these dummy ones,
         // but taking 3 times the size seems to work
         let result = 3 * size;
-        println!(
+        log::debug!(
             "estimated size for tx with {} inputs and {} outputs: {}",
-            num_inputs, num_outputs, result
+            num_inputs,
+            num_outputs,
+            result
         );
         result
         // Take twice the encoded size of the dummy tx.Real Txs are larger than these dummy ones,
@@ -1012,9 +1017,9 @@ mod tests {
 
     #[test]
     fn dummy_size() {
-        eprintln!("1, 1: {}", estimate_tx_size(1, 1));
-        eprintln!("1, 2: {}", estimate_tx_size(1, 2));
-        eprintln!("1, 400: {}", estimate_tx_size(1, 400));
+        log::debug!("1, 1: {}", estimate_tx_size(1, 1));
+        log::debug!("1, 2: {}", estimate_tx_size(1, 2));
+        log::debug!("1, 400: {}", estimate_tx_size(1, 400));
     }
 
     #[test]
@@ -1024,7 +1029,7 @@ mod tests {
             .with_num_inputs(1)
             .with_num_outputs(400)
             .generate_tx(&mempool)?;
-        println!("real size of tx {}", tx.encoded_size());
+        log::debug!("real size of tx {}", tx.encoded_size());
         Ok(())
     }
 
@@ -1122,7 +1127,7 @@ mod tests {
                     })?
                     .tx,
             );
-            println!("Setting tip to {:?}", chain_state);
+            log::debug!("Setting tip to {:?}", chain_state);
             self.new_tip_set(chain_state);
             self.drop_transaction(tx_id);
             Ok(())
@@ -1271,9 +1276,11 @@ mod tests {
                 get_relay_fee_from_tx_size(estimate_tx_size(self.num_inputs, self.num_outputs))
                     .into()
             };
-            println!(
+            log::debug!(
                 "Trying to build a tx with {} inputs, {} outputs, and a fee of {:?}",
-                self.num_inputs, self.num_outputs, fee
+                self.num_inputs,
+                self.num_outputs,
+                fee
             );
             let valued_inputs = self.generate_tx_inputs(fee)?;
             let outputs = self.generate_tx_outputs(&valued_inputs, fee)?;
@@ -1353,9 +1360,10 @@ mod tests {
             num_outputs: usize,
             fee: Amount,
         ) -> anyhow::Result<Vec<ValuedOutPoint>> {
-            println!(
+            log::debug!(
                 "get_unspent_outpoints: num_outputs: {}, fee: {:?}",
-                num_outputs, fee
+                num_outputs,
+                fee
             );
             let num_available_outpoints = self.coin_pool.len();
             let outpoints: Vec<_> = (num_available_outpoints >= num_outputs)
@@ -1367,16 +1375,12 @@ mod tests {
                 .sum::<Option<_>>()
                 .expect("sum error");
             if fee > sum_of_outputs {
-                println!(
-                    "get_unspent_outpoints: fee is {:?} but sum_of_outputs is {:?}",
-                    fee, sum_of_outputs
-                );
-                return Err(anyhow::Error::msg(
-                    "get_unspent_outpoints:: not enough for fees",
-                ));
+                Err(anyhow::Error::msg(
+                    "get_unspent_outpoints:: fee is {:?} but sum of outputs is {:?}",
+                ))
+            } else {
+                Ok(outpoints)
             }
-
-            Ok(outpoints)
         }
     }
 
@@ -2343,8 +2347,8 @@ mod tests {
             time_processing_txs += before_processing.elapsed()
         }
 
-        println!("Total time spent processing: {:?}", time_processing_txs);
-        println!("Total time spent creating: {:?}", time_creating_txs);
+        log::info!("Total time spent processing: {:?}", time_processing_txs);
+        log::info!("Total time spent creating: {:?}", time_creating_txs);
         Ok(())
     }
 }
