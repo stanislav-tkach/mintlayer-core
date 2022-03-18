@@ -2020,6 +2020,7 @@ dependencies = [
  "anyhow",
  "common",
  "lazy_static",
+ "logging",
  "mockall",
  "parity-scale-codec",
  "thiserror",
