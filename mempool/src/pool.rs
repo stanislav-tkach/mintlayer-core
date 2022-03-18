@@ -2219,7 +2219,7 @@ mod tests {
     }
 
     #[test]
-    fn rolling_fee() -> anyhow::Result<()> {
+    fn test_rolling_fee() -> anyhow::Result<()> {
         let mock_clock = MockClock::new();
         let mut mock_usage = MockGetMemoryUsage::new();
         // Add parent
