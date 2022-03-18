@@ -121,6 +121,52 @@ struct TxMempoolEntry {
     creation_time: Time,
 }
 
+trait GetParents {
+    fn get_parents(&self, store: &MempoolStore) -> BTreeSet<H256>;
+}
+
+impl GetParents for &TxMempoolEntry {
+    fn get_parents(&self, _store: &MempoolStore) -> BTreeSet<H256> {
+        self.parents.to_owned()
+    }
+}
+
+impl GetParents for Transaction {
+    fn get_parents(&self, store: &MempoolStore) -> BTreeSet<H256> {
+        self.get_inputs()
+            .iter()
+            .map(|input| input.get_outpoint().get_tx_id().get_tx_id().expect("Not coinbase").get())
+            .filter_map(|id| store.txs_by_id.contains_key(&id).then(|| id))
+            .collect::<BTreeSet<_>>()
+    }
+}
+
+fn unconfirmed_ancestors<T: GetParents>(tx: T, store: &MempoolStore) -> Ancestors {
+    let mut visited = Ancestors(BTreeSet::new());
+    tx.unconfirmed_ancestors_inner(&mut visited, store);
+    visited
+}
+
+trait UnconfirmedAncestorsInner {
+    fn unconfirmed_ancestors_inner(self, visited: &mut Ancestors, store: &MempoolStore);
+}
+
+impl<T: GetParents> UnconfirmedAncestorsInner for T {
+    fn unconfirmed_ancestors_inner(self, visited: &mut Ancestors, store: &MempoolStore) {
+        for parent in self.get_parents(store).iter() {
+            if visited.contains(parent) {
+                continue;
+            } else {
+                visited.insert(parent.to_owned());
+                store
+                    .get_entry(parent)
+                    .expect("entry")
+                    .unconfirmed_ancestors_inner(visited, store);
+            }
+        }
+    }
+}
+
 impl TxMempoolEntry {
     fn new(
         tx: Transaction,
@@ -164,30 +210,9 @@ impl TxMempoolEntry {
 
     fn is_replaceable(&self, store: &MempoolStore) -> bool {
         self.tx.is_replaceable()
-            || self
-                .unconfirmed_ancestors(store)
+            || unconfirmed_ancestors(self, store)
                 .iter()
                 .any(|ancestor| store.get_entry(ancestor).expect("entry").tx.is_replaceable())
-    }
-
-    fn unconfirmed_ancestors(&self, store: &MempoolStore) -> Ancestors {
-        let mut visited = Ancestors(BTreeSet::new());
-        self.unconfirmed_ancestors_inner(&mut visited, store);
-        visited
-    }
-
-    fn unconfirmed_ancestors_inner(&self, visited: &mut Ancestors, store: &MempoolStore) {
-        for parent in self.parents.iter() {
-            if visited.contains(parent) {
-                continue;
-            } else {
-                visited.insert(parent.to_owned());
-                store
-                    .get_entry(parent)
-                    .expect("entry")
-                    .unconfirmed_ancestors_inner(visited, store);
-            }
-        }
     }
 
     fn unconfirmed_descendants(&self, store: &MempoolStore) -> Descendants {
@@ -357,7 +382,7 @@ impl MempoolStore {
     }
 
     fn update_ancestor_count(&mut self, entry: &TxMempoolEntry) {
-        for ancestor in entry.unconfirmed_ancestors(self).0 {
+        for ancestor in unconfirmed_ancestors(entry, self).0 {
             let ancestor = self.txs_by_id.get_mut(&ancestor).expect("ancestor");
             ancestor.count_with_descendants += 1;
         }
@@ -537,10 +562,10 @@ where
 
     fn create_entry(&self, tx: Transaction) -> Result<TxMempoolEntry, TxValidationError> {
         let parents = tx
-            .get_inputs()
+            .get_parents(&self.store)
             .iter()
-            .map(|input| input.get_outpoint().get_tx_id().get_tx_id().expect("Not coinbase").get())
-            .filter_map(|id| self.store.txs_by_id.contains_key(&id).then(|| id))
+            .filter_map(|id| self.store.txs_by_id.contains_key(id).then(|| id))
+            .cloned()
             .collect::<BTreeSet<_>>();
 
         let fee = self.try_get_fee(&tx)?;
@@ -1900,12 +1925,12 @@ mod tests {
         let entry4 = mempool.store.get_entry(ids.get(3).expect("index")).expect("entry");
         let entry5 = mempool.store.get_entry(ids.get(4).expect("index")).expect("entry");
         let entry6 = mempool.store.get_entry(ids.get(5).expect("index")).expect("entry");
-        assert_eq!(entry1.unconfirmed_ancestors(&mempool.store).len(), 0);
-        assert_eq!(entry2.unconfirmed_ancestors(&mempool.store).len(), 0);
-        assert_eq!(entry3.unconfirmed_ancestors(&mempool.store).len(), 2);
-        assert_eq!(entry4.unconfirmed_ancestors(&mempool.store).len(), 3);
-        assert_eq!(entry5.unconfirmed_ancestors(&mempool.store).len(), 3);
-        assert_eq!(entry6.unconfirmed_ancestors(&mempool.store).len(), 5);
+        assert_eq!(unconfirmed_ancestors(entry1, &mempool.store).len(), 0);
+        assert_eq!(unconfirmed_ancestors(entry2, &mempool.store).len(), 0);
+        assert_eq!(unconfirmed_ancestors(entry3, &mempool.store).len(), 2);
+        assert_eq!(unconfirmed_ancestors(entry4, &mempool.store).len(), 3);
+        assert_eq!(unconfirmed_ancestors(entry5, &mempool.store).len(), 3);
+        assert_eq!(unconfirmed_ancestors(entry6, &mempool.store).len(), 5);
 
         assert_eq!(entry1.count_with_descendants(), 5);
         assert_eq!(entry2.count_with_descendants(), 5);
