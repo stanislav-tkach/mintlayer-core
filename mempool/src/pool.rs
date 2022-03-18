@@ -841,6 +841,7 @@ where
             .collect()
     }
 
+    // TODO maybe don't need result
     fn trim(&mut self) -> Result<Vec<FeeRate>, Error> {
         let mut removed_fees = Vec::new();
         while !self.store.is_empty() && self.get_memory_usage() > self.max_size {
