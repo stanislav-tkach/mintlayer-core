@@ -584,7 +584,11 @@ where
         minimum_fee_rate.compute_fee(tx.encoded_size())
     }
 
-    fn validate_transaction(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
+    fn validate_transaction(
+        &self,
+        tx: &Transaction,
+        expired_entries: &BTreeSet<H256>,
+    ) -> Result<Conflicts, TxValidationError> {
         if tx.get_inputs().is_empty() {
             return Err(TxValidationError::NoInputs);
         }
@@ -612,6 +616,10 @@ where
 
         if self.contains_transaction(&tx.get_id()) {
             return Err(TxValidationError::TransactionAlreadyInMempool);
+        }
+
+        if !tx.get_parents(&self.store).is_disjoint(expired_entries) {
+            return Err(TxValidationError::HasExpiredAncestor);
         }
 
         let conflicts = self.rbf_checks(tx)?;
@@ -796,7 +804,6 @@ where
     }
 
     fn limit_mempool_size(&mut self) -> Result<(), Error> {
-        self.remove_expired_transactions();
         let removed_fees = self.trim()?;
         if !removed_fees.is_empty() {
             let new_minimum_fee_rate =
@@ -811,14 +818,13 @@ where
         Ok(())
     }
 
-    fn remove_expired_transactions(&mut self) {
-        let expired: Vec<_> = self
-            .store
+    fn get_expired_entries(&mut self) -> BTreeSet<H256> {
+        self.store
             .txs_by_creation_time
             .values()
             .flatten()
             .map(|entry_id| self.store.txs_by_id.get(entry_id).expect("entry should exist"))
-            .filter(|entry| {
+            .filter_map(|entry| {
                 let now = self.clock.get_time();
                 if now - entry.creation_time > self.max_tx_age {
                     log::trace!(
@@ -827,17 +833,12 @@ where
                         entry.creation_time,
                         now
                     );
-                    true
+                    Some(entry.tx_id())
                 } else {
-                    false
+                    None
                 }
             })
-            .cloned()
-            .collect();
-
-        for tx_id in expired.iter().map(|entry| entry.tx.get_id()) {
-            self.store.drop_tx_and_descendants(tx_id)
-        }
+            .collect()
     }
 
     fn trim(&mut self) -> Result<Vec<FeeRate>, Error> {
@@ -934,9 +935,15 @@ where
     //
 
     fn add_transaction(&mut self, tx: Transaction) -> Result<(), Error> {
-        let conflicts = self.validate_transaction(&tx)?;
-        self.finalize_tx(tx, conflicts)?;
-        Ok(())
+        self.limit_mempool_size()?;
+        let expired_entries = self.get_expired_entries();
+        let validation_result = self.validate_transaction(&tx, &expired_entries);
+        for tx_id in expired_entries.iter() {
+            self.store.drop_tx_and_descendants(Id::new(tx_id))
+        }
+        validation_result
+            .map_err(Error::from)
+            .and_then(|conflicts| self.finalize_tx(tx, conflicts))
     }
 
     fn get_all(&self) -> Vec<&Transaction> {
@@ -2412,7 +2419,12 @@ mod tests {
 
         mock_clock.set(DEFAULT_MEMPOOL_EXPIRY + 1);
 
-        mempool.add_transaction(child_1)?;
+        assert!(matches!(
+            mempool.add_transaction(child_1),
+            Err(Error::TxValidationError(
+                TxValidationError::HasExpiredAncestor
+            ))
+        ));
         assert!(!mempool.contains_transaction(&child_0_id));
         assert!(!mempool.contains_transaction(&child_1_id));
         Ok(())

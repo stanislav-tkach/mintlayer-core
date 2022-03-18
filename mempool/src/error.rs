@@ -66,6 +66,8 @@ pub enum TxValidationError {
     RollingFeeThresholdNotMet { minimum_fee: Amount, tx_fee: Amount },
     #[error("FeeRate error")]
     FeeRateError,
+    #[error("HasExpiredAncestor")]
+    HasExpiredAncestor,
     #[error("Internal Error")]
     InternalError,
 }
