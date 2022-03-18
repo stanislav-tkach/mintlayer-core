@@ -1378,9 +1378,10 @@ mod tests {
 
             let mut left_to_spend = total_to_spend;
             let mut outputs = Vec::new();
+            let value = (sum_of_inputs / Amount::from(self.num_outputs as u128))
+                .expect("not dividing by zero");
 
             for _ in 0..self.num_outputs - 1 {
-                let value = std::cmp::min(Amount::from(1000), left_to_spend);
                 outputs.push(TxOutput::new(value, Destination::PublicKey));
                 left_to_spend = (left_to_spend - value).expect("subtraction failed");
             }
@@ -2285,6 +2286,10 @@ mod tests {
                     anyhow::anyhow!("expected_rolling_fee_rate")
                 })?;
         println!("expected_rolling_fee_rate: {:?}", expected_rolling_fee_rate);
+        println!(
+            "estimated_tx_size = {}",
+            estimate_tx_size(num_inputs, num_outputs)
+        );
         let big_fee =
             expected_rolling_fee_rate.compute_fee(estimate_tx_size(num_inputs, num_outputs))?;
         println!("big_fee: {:?}", big_fee);
