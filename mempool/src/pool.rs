@@ -107,9 +107,9 @@ trait TryGetFee {
     fn try_get_fee(&self, tx: &Transaction) -> Result<Amount, TxValidationError>;
 }
 
-newtype!(Ancestors(BTreeSet<H256>));
-newtype!(Descendants(BTreeSet<H256>));
-newtype!(Conflicts(BTreeSet<H256>));
+newtype!(struct Ancestors(BTreeSet<H256>));
+newtype!(struct Descendants(BTreeSet<H256>));
+newtype!(struct Conflicts(BTreeSet<H256>));
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct TxMempoolEntry {

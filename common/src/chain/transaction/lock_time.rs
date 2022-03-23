@@ -6,5 +6,5 @@ pub enum BlockTime {
     /// Number of blocks since genesis
     Blocks(u32),
     /// Real world time
-    Timestamp(Duration),
+    Timestamp(u32),
 }

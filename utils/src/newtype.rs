@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! newtype {
-    ($vis:vis $name:ident($wrapped:ty)) => {
+    ($vis:vis struct $name:ident($wrapped:ty)) => {
         $vis struct $name($wrapped);
 
         impl From<$name> for $wrapped {
