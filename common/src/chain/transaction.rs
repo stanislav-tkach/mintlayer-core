@@ -27,6 +27,9 @@ pub use input::*;
 pub mod output;
 pub use output::*;
 
+pub mod lock_time;
+pub use lock_time::*;
+
 pub mod transaction_index;
 pub use transaction_index::*;
 

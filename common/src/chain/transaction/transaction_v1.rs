@@ -1,4 +1,5 @@
 pub use crate::chain::transaction::input::*;
+pub use crate::chain::transaction::lock_time::*;
 pub use crate::chain::transaction::output::*;
 pub use crate::chain::transaction::TransactionCreationError;
 use crate::primitives::{id, Id, Idable};
