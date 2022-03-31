@@ -2406,4 +2406,42 @@ mod tests {
         log::info!("Total time spent creating: {:?}", time_creating_txs);
         Ok(())
     }
+
+    #[test]
+    fn descendant_score() -> anyhow::Result<()> {
+        let mut mempool = setup();
+        let tx = TxGenerator::new()
+            .with_num_outputs(2)
+            .generate_tx(&mempool)
+            .expect("generate_replaceable_tx");
+        let tx_id = tx.get_id();
+        mempool.add_transaction(tx)?;
+
+        let outpoint_source_id = OutPointSourceId::Transaction(tx_id);
+
+        let flags = 0;
+        let locktime = 0;
+
+        let child_b_fee = Amount::from(get_relay_fee_from_tx_size(estimate_tx_size(1, 2)) + 100);
+        let child_a_fee = (child_b_fee + Amount::from(1000)).unwrap();
+        let child_a = tx_spend_input(
+            &mempool,
+            TxInput::new(outpoint_source_id.clone(), 0, DUMMY_WITNESS_MSG.to_vec()),
+            child_a_fee,
+            flags,
+            locktime,
+        )?;
+        mempool.add_transaction(child_a)?;
+
+        let child_b = tx_spend_input(
+            &mempool,
+            TxInput::new(outpoint_source_id, 1, DUMMY_WITNESS_MSG.to_vec()),
+            child_b_fee,
+            flags,
+            locktime,
+        )?;
+        mempool.add_transaction(child_b)?;
+
+        Ok(())
+    }
 }
