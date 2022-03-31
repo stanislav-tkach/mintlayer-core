@@ -2422,25 +2422,78 @@ mod tests {
         let flags = 0;
         let locktime = 0;
 
-        let child_b_fee = Amount::from(get_relay_fee_from_tx_size(estimate_tx_size(1, 2)) + 100);
-        let child_a_fee = (child_b_fee + Amount::from(1000)).unwrap();
-        let child_a = tx_spend_input(
+        let tx_b_fee = Amount::from(get_relay_fee_from_tx_size(estimate_tx_size(1, 2)) + 100);
+        let tx_a_fee = (tx_b_fee + Amount::from(1000)).unwrap();
+        let tx_c_fee = (tx_a_fee + Amount::from(1000)).unwrap();
+        let tx_a = tx_spend_input(
             &mempool,
             TxInput::new(outpoint_source_id.clone(), 0, DUMMY_WITNESS_MSG.to_vec()),
-            child_a_fee,
+            tx_a_fee,
             flags,
             locktime,
         )?;
-        mempool.add_transaction(child_a)?;
+        let tx_a_id = tx_a.get_id();
+        println!("tx_a_id : {}", tx_a_id.get());
+        println!("tx_a fee : {:?}", mempool.try_get_fee(&tx_a)?);
+        mempool.add_transaction(tx_a)?;
 
-        let child_b = tx_spend_input(
+        let tx_b = tx_spend_input(
             &mempool,
             TxInput::new(outpoint_source_id, 1, DUMMY_WITNESS_MSG.to_vec()),
-            child_b_fee,
+            tx_b_fee,
             flags,
             locktime,
         )?;
-        mempool.add_transaction(child_b)?;
+        let tx_b_id = tx_b.get_id();
+        println!("tx_b_id : {}", tx_b_id.get());
+        println!("tx_b fee : {:?}", mempool.try_get_fee(&tx_b)?);
+        mempool.add_transaction(tx_b)?;
+
+        let tx_c = tx_spend_input(
+            &mempool,
+            TxInput::new(
+                OutPointSourceId::Transaction(tx_b_id.clone()),
+                0,
+                DUMMY_WITNESS_MSG.to_vec(),
+            ),
+            tx_c_fee,
+            flags,
+            locktime,
+        )?;
+        let tx_c_id = tx_c.get_id();
+        println!("tx_c_id : {}", tx_c_id.get());
+        println!("tx_c fee : {:?}", mempool.try_get_fee(&tx_c)?);
+        mempool.add_transaction(tx_c)?;
+
+        let entry_a = mempool.store.txs_by_id.get(&tx_a_id.get()).expect("tx_a");
+        println!("entry a has score {:?}", entry_a.fees_with_descendants);
+        let entry_b = mempool.store.txs_by_id.get(&tx_b_id.get()).expect("tx_b");
+        println!("entry b has score {:?}", entry_b.fees_with_descendants);
+        let entry_c = mempool.store.txs_by_id.get(&tx_c_id.get()).expect("tx_c");
+        println!("entry c has score {:?}", entry_c.fees_with_descendants);
+        assert_eq!(entry_a.fee, entry_a.fees_with_descendants);
+        assert_eq!(
+            entry_b.fees_with_descendants,
+            (entry_b.fee + entry_c.fee).unwrap()
+        );
+        println!(
+            "raw_txs_by_descendant_score {:?}",
+            mempool.store.txs_by_descendant_score
+        );
+        let txs_by_descendant_score =
+            mempool.store.txs_by_descendant_score.values().flatten().collect::<Vec<_>>();
+        println!("txs_by_descendant_score {:?}", txs_by_descendant_score);
+        for i in 0..(txs_by_descendant_score.len() - 1) {
+            println!("i =  {}", i);
+            let tx_id = txs_by_descendant_score.get(i).unwrap();
+            let next_tx_id = txs_by_descendant_score.get(i + 1).unwrap();
+            let entry_score = mempool.store.txs_by_id.get(tx_id).unwrap().fees_with_descendants;
+            let next_entry_score =
+                mempool.store.txs_by_id.get(next_tx_id).unwrap().fees_with_descendants;
+            println!("entry_score: {:?}", entry_score);
+            println!("next_entry_score: {:?}", next_entry_score);
+            assert!(entry_score >= next_entry_score)
+        }
 
         Ok(())
     }
