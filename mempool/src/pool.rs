@@ -420,18 +420,40 @@ impl MempoolStore {
         // Since the ancestors of `entry` have had their descendant score modified, their ordering
         // in txs_by_descendant_score may no longer be correct. We thus remove all ancestors and
         // reinsert them, taking the new, update fees into account
+        println!("add_to_descendant_score_index: entry: {:?}", entry);
+        println!(
+            "BEGIN descendant score index {:?}",
+            self.txs_by_descendant_score
+        );
         let ancestors = entry.unconfirmed_ancestors(self);
+        println!("entry has ancestors: {:?}", ancestors);
         for entries in self.txs_by_descendant_score.values_mut() {
             entries.retain(|id| !ancestors.contains(id))
         }
+        println!("after removing ancestors of {}, txs_by_descendant_score looks like this has ancestors: {:?}", entry.tx_id(),self.txs_by_descendant_score);
+
         for ancestor_id in ancestors.0 {
             let ancestor = self.txs_by_id.get(&ancestor_id).expect("Inconsistent mempool state");
+            println!(
+                "reinserting ancestor {}, it now has fee {:?}",
+                ancestor.tx_id(),
+                ancestor.fee
+            );
             self.txs_by_descendant_score
                 .entry(ancestor.fee)
                 .or_default()
                 .insert(ancestor_id);
         }
+        println!(
+            "inserting new entry {}, which as fee {:?}",
+            entry.tx_id(),
+            entry.fee
+        );
         self.txs_by_descendant_score.entry(entry.fee).or_default().insert(entry.tx_id());
+        println!(
+            "END descendant score index {:?}",
+            self.txs_by_descendant_score
+        );
     }
 
     fn remove_tx(&mut self, tx_id: &Id<Transaction>) {
