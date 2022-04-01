@@ -236,6 +236,23 @@ impl Ord for TxMempoolEntry {
     }
 }
 
+newtype!(
+    #[derive(Debug, PartialEq, Eq)]
+    struct DescendantScore(Amount)
+);
+
+impl PartialOrd for DescendantScore {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(other.0.cmp(&self.0))
+    }
+}
+
+impl Ord for DescendantScore {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.0.cmp(&self.0)
+    }
+}
+
 // TODO update this struct when a new block is processed
 #[derive(Clone, Copy, Debug)]
 struct RollingFeeRate {
@@ -291,7 +308,7 @@ pub struct MempoolImpl<C: ChainState, T: GetTime, M: GetMemoryUsage> {
 #[derive(Debug)]
 struct MempoolStore {
     txs_by_id: HashMap<H256, TxMempoolEntry>,
-    txs_by_descendant_score: BTreeMap<Amount, BTreeSet<H256>>,
+    txs_by_descendant_score: BTreeMap<DescendantScore, BTreeSet<H256>>,
     txs_by_creation_time: BTreeMap<Time, BTreeSet<H256>>,
     spender_txs: BTreeMap<OutPoint, H256>,
 }
@@ -427,11 +444,14 @@ impl MempoolStore {
         for ancestor_id in ancestors.0 {
             let ancestor = self.txs_by_id.get(&ancestor_id).expect("Inconsistent mempool state");
             self.txs_by_descendant_score
-                .entry(ancestor.fee)
+                .entry(ancestor.fees_with_descendants.into())
                 .or_default()
                 .insert(ancestor_id);
         }
-        self.txs_by_descendant_score.entry(entry.fee).or_default().insert(entry.tx_id());
+        self.txs_by_descendant_score
+            .entry(entry.fee.into())
+            .or_default()
+            .insert(entry.tx_id());
     }
 
     fn remove_tx(&mut self, tx_id: &Id<Transaction>) {
@@ -451,7 +471,7 @@ impl MempoolStore {
     }
 
     fn drop_tx(&mut self, entry: &TxMempoolEntry) {
-        self.txs_by_descendant_score.entry(entry.fee).and_modify(|entries| {
+        self.txs_by_descendant_score.entry(entry.fee.into()).and_modify(|entries| {
             entries.remove(&entry.tx_id()).then(|| ()).expect("Inconsistent mempool store")
         });
         self.txs_by_creation_time.entry(entry.creation_time).and_modify(|entries| {
