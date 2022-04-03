@@ -905,9 +905,9 @@ where
                 .to_owned();
 
             log::debug!(
-                "Mempool trim: Evicting tx {} which pays a fee of {:?} and has size {}",
+                "Mempool trim: Evicting tx {} which has a descendant score of {:?} and has size {}",
                 removed.tx_id(),
-                removed.fee,
+                removed.fees_with_descendants,
                 removed.tx.encoded_size()
             );
             removed_fees.push(FeeRate::of_tx(removed.fee, removed.tx.encoded_size())?);
