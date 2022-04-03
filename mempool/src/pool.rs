@@ -890,6 +890,10 @@ where
         let mut removed_fees = Vec::new();
         while !self.store.is_empty() && self.get_memory_usage() > self.max_size {
             // TODO sort by descendant score, not by fee
+            log::debug!(
+                "TRIM txs_by_descendant_score: {:#?}",
+                self.store.txs_by_descendant_score
+            );
             let removed_id = self
                 .store
                 .txs_by_descendant_score
