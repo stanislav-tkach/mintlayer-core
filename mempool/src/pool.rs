@@ -471,9 +471,11 @@ impl MempoolStore {
     }
 
     fn drop_tx(&mut self, entry: &TxMempoolEntry) {
-        self.txs_by_descendant_score.entry(entry.fee.into()).and_modify(|entries| {
-            entries.remove(&entry.tx_id()).then(|| ()).expect("Inconsistent mempool store")
-        });
+        self.txs_by_descendant_score
+            .entry(entry.fees_with_descendants.into())
+            .and_modify(|entries| {
+                entries.remove(&entry.tx_id()).then(|| ()).expect("Inconsistent mempool store")
+            });
         self.txs_by_creation_time.entry(entry.creation_time).and_modify(|entries| {
             entries.remove(&entry.tx_id()).then(|| ()).expect("Inconsistent mempool store")
         });
