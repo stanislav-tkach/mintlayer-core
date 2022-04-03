@@ -2294,6 +2294,7 @@ mod tests {
             .with_num_outputs(num_outputs)
             .generate_tx(&mempool)?;
         let parent_id = parent.get_id();
+        log::debug!("parent_id: {}", parent_id.get());
         log::debug!("before adding parent");
         mempool.add_transaction(parent)?;
         log::debug!("after adding parent");
@@ -2311,6 +2312,7 @@ mod tests {
             locktime,
         )?;
         let child_0_id = child_0.get_id();
+        log::debug!("child_0_id {}", child_0_id.get());
 
         let big_fee = Amount::from(
             get_relay_fee_from_tx_size(estimate_tx_size(num_inputs, num_outputs)) + 100,
@@ -2323,6 +2325,7 @@ mod tests {
             locktime,
         )?;
         let child_1_id = child_1.get_id();
+        log::debug!("child_1_id {}", child_1_id.get());
         mempool.add_transaction(child_0.clone())?;
         log::debug!("added child_0");
         mempool.add_transaction(child_1)?;
