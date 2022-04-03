@@ -899,6 +899,7 @@ where
                 .txs_by_descendant_score
                 .values()
                 .flatten()
+                .rev()
                 .next()
                 .expect("pool not empty");
             let removed = self
