@@ -422,6 +422,14 @@ impl MempoolStore {
     }
 
     fn add_to_descendant_score_index(&mut self, entry: &TxMempoolEntry) {
+        self.refresh_ancestors(entry);
+        self.txs_by_descendant_score
+            .entry(entry.fee.into())
+            .or_default()
+            .insert(entry.tx_id());
+    }
+
+    fn refresh_ancestors(&mut self, entry: &TxMempoolEntry) {
         // Since the ancestors of `entry` have had their descendant score modified, their ordering
         // in txs_by_descendant_score may no longer be correct. We thus remove all ancestors and
         // reinsert them, taking the new, updated fees into account
@@ -436,10 +444,6 @@ impl MempoolStore {
                 .or_default()
                 .insert(ancestor_id);
         }
-        self.txs_by_descendant_score
-            .entry(entry.fee.into())
-            .or_default()
-            .insert(entry.tx_id());
     }
 
     fn remove_tx(&mut self, tx_id: &Id<Transaction>) {
