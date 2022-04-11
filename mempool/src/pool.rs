@@ -24,6 +24,7 @@ use crate::error::Error;
 use crate::error::TxValidationError;
 use crate::feerate::FeeRate;
 use crate::feerate::INCREMENTAL_RELAY_FEE_RATE;
+use crate::feerate::INCREMENTAL_RELAY_THRESHOLD;
 
 const ROLLING_FEE_BASE_HALFLIFE: Time = 60 * 60 * 12;
 // TODO this willbe defined elsewhere (some of limits.rs file)
@@ -254,7 +255,7 @@ impl RollingFeeRate {
         let divisor =
             2f64.powf((current_time - self.last_rolling_fee_update) as f64 / (halflife as f64));
         self.rolling_minimum_fee_rate =
-            FeeRate::new(self.rolling_minimum_fee_rate.tokens_per_byte().div_by_float(divisor));
+            FeeRate::new(self.rolling_minimum_fee_rate.tokens_per_kb().div_by_float(divisor));
 
         log::trace!(
             "decay_fee: new fee rate:  {:?}",
@@ -580,10 +581,7 @@ where
                 self.rolling_fee_rate
             );
 
-            if self.rolling_fee_rate.get().rolling_minimum_fee_rate
-                < (*INCREMENTAL_RELAY_FEE_RATE / FeeRate::new(Amount::from_atoms(2)))
-                    .expect("not division by zero")
-            {
+            if self.rolling_fee_rate.get().rolling_minimum_fee_rate < *INCREMENTAL_RELAY_THRESHOLD {
                 log::trace!("rolling fee rate {:?} less than half of the incremental fee rate, dropping the fee", self.rolling_fee_rate.get().rolling_minimum_fee_rate);
                 self.drop_rolling_fee();
                 return Ok(self.rolling_fee_rate.get().rolling_minimum_fee_rate);
@@ -649,9 +647,14 @@ where
     ) -> Result<Amount, TxValidationError> {
         let minimum_fee_rate = self.get_update_min_fee_rate()?;
         log::debug!("minimum fee rate {:?}", minimum_fee_rate);
-        log::debug!("tx_size: {:?}", tx.encoded_size());
-
-        minimum_fee_rate.compute_fee(tx.encoded_size())
+        log::debug!(
+            "tx_size: {:?}, tx_fee {:?}",
+            tx.encoded_size(),
+            self.try_get_fee(tx)?
+        );
+        let res = minimum_fee_rate.compute_fee(tx.encoded_size());
+        log::debug!("minimum_mempool_fee for tx: {:?}", res);
+        res
     }
 
     fn validate_transaction(&self, tx: &Transaction) -> Result<Conflicts, TxValidationError> {
@@ -1821,14 +1824,14 @@ mod tests {
         let input = TxInput::new(outpoint_source_id, 0, DUMMY_WITNESS_MSG.to_vec());
         let flags = 0;
         let locktime = 0;
-        let original_fee = Amount::from(get_relay_fee_from_tx_size(TX_SPEND_INPUT_SIZE));
+        let original_fee = Amount::from_atoms(get_relay_fee_from_tx_size(TX_SPEND_INPUT_SIZE));
         let original = tx_spend_input(&mempool, input.clone(), original_fee, flags, locktime)
             .expect("should be able to spend here");
         let original_id = original.get_id();
         mempool.add_transaction(original)?;
 
         let flags = 0;
-        let replacement_fee = (original_fee + 1000.into()).unwrap();
+        let replacement_fee = (original_fee + Amount::from_atoms(1000)).unwrap();
         let replacement = tx_spend_input(&mempool, input, replacement_fee, flags, locktime)
             .expect("should be able to spend here");
         assert!(matches!(
@@ -2449,6 +2452,11 @@ mod tests {
         assert!(mempool.contains_transaction(&child_1_id));
         assert!(!mempool.contains_transaction(&child_0_id));
         let rolling_fee = mempool.get_minimum_rolling_fee();
+        log::debug!("FeeRate of child_0 {:?}", mempool.try_get_fee(&child_0)?);
+        log::debug!(
+            "minimum rolling fee after child_0's eviction {:?}",
+            rolling_fee
+        );
         assert_eq!(
             rolling_fee,
             (FeeRate::of_tx(mempool.try_get_fee(&child_0)?, child_0.encoded_size())?
@@ -2465,9 +2473,16 @@ mod tests {
             flags,
             locktime,
         )?;
-        log::debug!("before child2");
+        log::debug!(
+            "before child2: fee = {:?}, size = {}, minimum fee rate = {:?}",
+            mempool.try_get_fee(&child_2)?,
+            child_2.encoded_size(),
+            mempool.get_minimum_rolling_fee()
+        );
+        let res = mempool.add_transaction(child_2);
+        log::debug!("result of adding child2 {:?}", res);
         assert!(matches!(
-            mempool.add_transaction(child_2),
+            res,
             Err(Error::TxValidationError(
                 TxValidationError::RollingFeeThresholdNotMet { .. }
             ))
@@ -2492,12 +2507,22 @@ mod tests {
 
         // Since memory usage is now zero, it is less than 1/4 of the max size
         // and ROLLING_FEE_BASE_HALFLIFE / 4 is the time it will take for the fee to halve
+        // We are going to submit dummy txs to the mempool incrementing time by this halflife
+        // between txs. Finally, when the fee rate falls under INCREMENTAL_RELAY_THRESHOLD, we
+        // observer that it is set to zero
         let halflife = ROLLING_FEE_BASE_HALFLIFE / 4;
         mock_clock.increment(halflife);
-        let dummy_tx = TxGenerator::new().generate_tx(&mempool)?;
-        log::debug!("first attempt to add dummy");
+        let dummy_tx =
+            TxGenerator::new().with_fee(Amount::from_atoms(100)).generate_tx(&mempool)?;
+        log::debug!(
+            "First attempt to add dummy which pays a fee of {:?}",
+            mempool.try_get_fee(&dummy_tx)?
+        );
+        let res = mempool.add_transaction(dummy_tx.clone());
+
+        log::debug!("Result of first attempt to add dummy: {:?}", res);
         assert!(matches!(
-            mempool.add_transaction(dummy_tx.clone()),
+            res,
             Err(Error::TxValidationError(
                 TxValidationError::RollingFeeThresholdNotMet { .. }
             ))
@@ -2508,10 +2533,31 @@ mod tests {
         );
 
         mock_clock.increment(halflife);
-        // Fee will have dropped under INCREMENTAL_RELAY_FEE_RATE / 2 by now, so it will be set to
-        // zero and our tx will be submitted successfully
-        log::debug!("second attempt to add dummy");
+        log::debug!("Second attempt to add dummy");
         mempool.add_transaction(dummy_tx)?;
+        assert_eq!(
+            mempool.get_minimum_rolling_fee(),
+            (rolling_fee / FeeRate::new(Amount::from_atoms(4))).unwrap()
+        );
+        log::debug!(
+            "After successful addition of dummy, rolling fee rate is {:?}",
+            mempool.get_minimum_rolling_fee()
+        );
+
+        // Add more dummies until rolling feerate drops to zero
+        mock_clock.increment(halflife);
+        let another_dummy =
+            TxGenerator::new().with_fee(Amount::from_atoms(100)).generate_tx(&mempool)?;
+        mempool.add_transaction(another_dummy)?;
+        assert_eq!(
+            mempool.get_minimum_rolling_fee(),
+            (rolling_fee / FeeRate::new(Amount::from_atoms(8))).unwrap()
+        );
+
+        mock_clock.increment(halflife);
+        let final_dummy =
+            TxGenerator::new().with_fee(Amount::from_atoms(100)).generate_tx(&mempool)?;
+        mempool.add_transaction(final_dummy)?;
         assert_eq!(
             mempool.get_minimum_rolling_fee(),
             FeeRate::new(Amount::from_atoms(0))
@@ -2567,9 +2613,9 @@ mod tests {
         let flags = 0;
         let locktime = 0;
 
-        let tx_b_fee = Amount::from(get_relay_fee_from_tx_size(estimate_tx_size(1, 2)));
-        let tx_a_fee = (tx_b_fee + Amount::from(1000)).unwrap();
-        let tx_c_fee = (tx_a_fee + Amount::from(1000)).unwrap();
+        let tx_b_fee = Amount::from_atoms(get_relay_fee_from_tx_size(estimate_tx_size(1, 2)));
+        let tx_a_fee = (tx_b_fee + Amount::from_atoms(1000)).unwrap();
+        let tx_c_fee = (tx_a_fee + Amount::from_atoms(1000)).unwrap();
         let tx_a = tx_spend_input(
             &mempool,
             TxInput::new(outpoint_source_id.clone(), 0, DUMMY_WITNESS_MSG.to_vec()),
@@ -2673,7 +2719,7 @@ mod tests {
         let parent = TxGenerator::new()
             .with_num_inputs(num_inputs)
             .with_num_outputs(num_outputs)
-            .with_fee(fee.into())
+            .with_fee(Amount::from_atoms(fee))
             .generate_tx(&mempool)?;
         let parent_id = parent.get_id();
         mempool.add_transaction(parent)?;
@@ -2734,7 +2780,7 @@ mod tests {
         let parent = TxGenerator::new()
             .with_num_inputs(num_inputs)
             .with_num_outputs(num_outputs)
-            .with_fee(fee.into())
+            .with_fee(Amount::from_atoms(fee))
             .generate_tx(&mempool)?;
         let parent_id = parent.get_id();
 
@@ -2753,7 +2799,7 @@ mod tests {
                         u32::try_from(i).unwrap(),
                         DUMMY_WITNESS_MSG.to_vec(),
                     ),
-                    Amount::from(fee + u128::try_from(i).unwrap()),
+                    Amount::from_atoms(fee + u128::try_from(i).unwrap()),
                     flags,
                     locktime,
                 )
