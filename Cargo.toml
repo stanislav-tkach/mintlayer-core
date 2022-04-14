@@ -24,6 +24,8 @@ members = [
   "node",          # node executable
   "wallet",        # wallet executable
   "utils",         # various utilities
+  "jsonrpc/client",
+  "jsonrpc/server",
 #  "test",          # integration tests
 ]
 
