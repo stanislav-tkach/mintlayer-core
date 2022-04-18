@@ -27,3 +27,25 @@ pub fn start(addr: &SocketAddr, num_threads: usize) -> anyhow::Result<()> {
     server.wait();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jsonrpc_core::Params;
+    use jsonrpc_core_client::transports::http;
+    use jsonrpc_core_client::RawClient;
+
+    #[tokio::test]
+    async fn get_protocol_version() {
+        let num_threads = 3;
+        std::thread::spawn(move || start(&"127.0.0.1:3030".parse().unwrap(), num_threads));
+
+        let client = http::connect::<RawClient>("http://127.0.0.1:3030")
+            .await
+            .expect("create client");
+        assert_eq!(
+            client.call_method("protocol_version", Params::None).await.unwrap(),
+            "version1"
+        );
+    }
+}

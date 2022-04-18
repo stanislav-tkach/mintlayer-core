@@ -11,3 +11,8 @@ anyhow = "1.0.56"
 jsonrpc-http-server = "18.0.0"
 jsonrpc-derive = "18.0.0"
 jsonrpc-core = "18.0.0"
+
+[dev-dependencies]
+tokio = "1.17.0"
+jsonrpc-core-client = "18.0.0"
+jsonrpc-client-transports = "18.0.0"
