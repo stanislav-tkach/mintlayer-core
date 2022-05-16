@@ -543,3 +543,59 @@ fn test_pow() {
             .expect("Unexpected conversion error")
     );
 }
+
+#[test]
+fn test_difficulty_adjustment() {
+    let ignore_consensus = BlockHeight::new(0);
+    let pow_consensus = BlockHeight::new(1);
+    let min_difficulty =
+        Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF]);
+
+    let upgrades = vec![
+        (
+            ignore_consensus,
+            UpgradeVersion::ConsensusUpgrade(ConsensusUpgrade::IgnoreConsensus),
+        ),
+        (
+            pow_consensus,
+            UpgradeVersion::ConsensusUpgrade(ConsensusUpgrade::PoW {
+                initial_difficulty: min_difficulty.into(),
+            }),
+        ),
+    ];
+
+    let net_upgrades = NetUpgrades::initialize(upgrades);
+
+    let config = ChainConfigBuilder::new().with_net_upgrades(net_upgrades).build();
+    let consensus = ConsensusBuilder::new().with_config(config).build();
+
+    let mut btf = BlockTestFrameWork::with_consensus(consensus);
+
+    // Blocks 0..2015 should need to satisfy the same (minimal difficulty).
+    for i in 1..2016 {
+        println!("i={}", i);
+        let prev_block =
+            btf.get_block(btf.block_indexes[i - 1].get_block_id().clone()).unwrap().unwrap();
+        let mut mined_block = btf.random_block(&prev_block, None);
+        let bits = min_difficulty.into();
+        assert!(
+            crate::detail::pow::work::mine(&mut mined_block, u128::MAX, bits, vec![])
+                .expect("Unexpected conversion error")
+        );
+        assert!(btf.add_special_block(mined_block).is_ok());
+    }
+
+    // However, for Block 2016 this difficulty is not enough
+    let prev_block =
+        btf.get_block(btf.block_indexes[2015].get_block_id().clone()).unwrap().unwrap();
+    let mut mined_block = btf.random_block(&prev_block, None);
+    let bits = min_difficulty.into();
+    assert!(
+        crate::detail::pow::work::mine(&mut mined_block, u128::MAX, bits, vec![])
+            .expect("Unexpected conversion error")
+    );
+    assert!(matches!(
+        btf.add_special_block(mined_block),
+        Err(BlockError::InvalidPoW)
+    ));
+}
