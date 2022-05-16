@@ -20,8 +20,12 @@ use crate::detail::tests::*;
 use blockchain_storage::Store;
 use common::chain::block::consensus_data::PoWData;
 use common::chain::config::ChainConfigBuilder;
+use common::chain::ConsensusUpgrade;
+use common::chain::NetUpgrades;
 use common::chain::OutputSpentState;
+use common::chain::UpgradeVersion;
 use common::primitives::Compact;
+use common::Uint256;
 
 #[test]
 fn test_process_genesis_block_wrong_block_source() {
@@ -471,4 +475,71 @@ fn test_consensus_type() {
         );
         assert!(btf.add_special_block(mined_block).is_ok());
     }
+}
+
+#[test]
+fn test_pow() {
+    let ignore_consensus = BlockHeight::new(0);
+    let pow_consensus = BlockHeight::new(1);
+    let difficulty =
+        Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0x0FFFFFFFFFFFFFFF]);
+
+    let upgrades = vec![
+        (
+            ignore_consensus,
+            UpgradeVersion::ConsensusUpgrade(ConsensusUpgrade::IgnoreConsensus),
+        ),
+        (
+            pow_consensus,
+            UpgradeVersion::ConsensusUpgrade(ConsensusUpgrade::PoW {
+                initial_difficulty: difficulty.into(),
+            }),
+        ),
+    ];
+
+    let net_upgrades = NetUpgrades::initialize(upgrades);
+
+    // Internally this calls Consensus::new, which processes the genesis block
+    // This should succeed because ChainConfigBuilder by default uses create_mainnet_genesis to
+    // create the genesis_block, and this function creates a genesis block with
+    // ConsenssuData::None, which agreess with the net_upgrades we defined above.
+    let config = ChainConfigBuilder::new().with_net_upgrades(net_upgrades).build();
+    let consensus = ConsensusBuilder::new().with_config(config).build();
+
+    let mut btf = BlockTestFrameWork::with_consensus(consensus);
+
+    // Let's create a bloc with random (invalid) PoW data and see that it fails the consensus
+    // checks
+    let prev_block = btf
+        .get_block(
+            btf.block_indexes
+                .last()
+                .expect("genesis should be there")
+                .get_block_id()
+                .clone(),
+        )
+        .unwrap()
+        .unwrap();
+    let mut random_invalid_block = btf.random_block(&prev_block, None);
+    let block_id = random_invalid_block.get_id().get();
+    random_invalid_block.update_consensus_data(ConsensusData::PoW(PoWData::new(
+        Compact(0),
+        0,
+        vec![],
+    )));
+    println!(
+        "Checking PoW for invalid block {:?}",
+        crate::detail::pow::work::check_proof_of_work(block_id, difficulty.into())
+    );
+    let res = btf.add_special_block(random_invalid_block.clone());
+    println!("res: {:?}", res);
+    assert!(matches!(res, Err(BlockError::InvalidPoW)));
+
+    // Now let's actually mine the block, i.e. find valid PoW and see that consensus checks pass
+    let mut valid_block = random_invalid_block;
+    let bits = difficulty.into();
+    assert!(
+        crate::detail::pow::work::mine(&mut valid_block, u128::MAX, bits, vec![])
+            .expect("Unexpected conversion error")
+    );
 }
