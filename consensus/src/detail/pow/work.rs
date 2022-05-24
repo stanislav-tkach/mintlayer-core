@@ -37,9 +37,12 @@ pub(crate) fn check_proof_of_work(
     block_hash: H256,
     block_bits: Compact,
 ) -> Result<bool, BlockError> {
+    println!("hash: 0x{:x}", block_hash);
     Uint256::try_from(block_bits)
         .map(|target| {
             let hash: Uint256 = block_hash.into();
+            println!("hash: {:?}", hash);
+            println!("tgt : {:?}", target);
 
             hash <= target
         })

@@ -187,6 +187,10 @@ pub fn create_unit_test_config() -> ChainConfig {
     }
 }
 
+pub fn create_regtest() -> ChainConfig {
+    create_unit_test_config()
+}
+
 pub struct TestChainConfig {
     net_upgrades: NetUpgrades<UpgradeVersion>,
     magic_bytes: [u8; 4],
