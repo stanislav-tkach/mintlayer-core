@@ -3531,6 +3531,7 @@ name = "serialization"
 version = "0.1.0"
 dependencies = [
  "arraytools",
+ "either",
  "hex-literal",
  "parity-scale-codec",
  "rand 0.8.5",
