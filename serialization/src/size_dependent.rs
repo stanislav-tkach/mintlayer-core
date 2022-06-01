@@ -135,8 +135,6 @@ pub trait SizedDecode: Sized {
 }
 
 /// Marker trait for types where T::encode is guaranteed to return a non-empty byte sequence.
-///
-/// Used to make sure Vec<T> or Option<T> can be uniquely coded in size-dependent mode.
 pub trait NonEmptyEncoding {}
 
 // TODO these macros would be much nicer as derive macros
@@ -237,6 +235,32 @@ impl<T: Decode + NonEmptyEncoding> SizedDecode for Vec<T> {
         while !data.is_empty() {
             ret.push(T::decode(&mut data)?);
         }
+        Ok(ret)
+    }
+}
+
+// If Option is coded in a size-independent way, we can treat empty byte sequence to be None as
+// long as the contents encode to a non-empty byte sequence.
+
+impl<T: Encode + NonEmptyEncoding> SizedEncode for Option<T> {
+    fn sized_size_hint(&self) -> usize {
+        self.as_ref().map_or(0, |x| x.size_hint())
+    }
+    fn sized_encode_to<O: Output + ?Sized>(&self, dest: &mut O) {
+        self.iter().for_each(|x| x.encode_to(dest))
+    }
+    fn sized_encoded_size(&self) -> usize {
+        self.as_ref().map_or(0, |x| x.encoded_size())
+    }
+}
+
+impl<T: Decode + NonEmptyEncoding> SizedDecode for Option<T> {
+    fn sized_decode(mut data: &[u8]) -> Result<Self, crate::Error> {
+        let ret = if data.is_empty() {
+            None
+        } else {
+            Some(T::decode(&mut data)?)
+        };
         Ok(ret)
     }
 }
